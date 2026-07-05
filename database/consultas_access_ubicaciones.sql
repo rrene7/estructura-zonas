@@ -1,0 +1,45 @@
+-- Consultas para ejecutar en Microsoft Access y validar ubicaciones/dependencias.
+-- No modifican datos.
+
+-- 1. Catalogo geografico
+SELECT CODPROV, DESPROV, CODDIST, DESDIST, CODCORR, DESCORR, VIGENTE
+FROM TABDIR
+ORDER BY CODPROV, CODDIST, CODCORR;
+
+-- 2. Catalogo de lugares
+SELECT CODIGO, DESLUG
+FROM TABLUGAR
+ORDER BY DESLUG;
+
+-- 3. Cuarteles, unidades o dependencias
+SELECT CODIGOCUAR, DESCRICUAR, PLANICUAR, VIGENTE, SECTOR, SEDE, CLASI, ORDSAL
+FROM TABCUAR
+ORDER BY DESCRICUAR;
+
+-- 4. BDFUERZA para comparar contra TABCUAR
+SELECT CODCUAR, DESCRIP, ORDSAL, VERORD
+FROM BDFUERZA
+ORDER BY DESCRIP;
+
+-- 5. Distribucion de funcionarios por cuartel/unidad
+SELECT CUARTEL, Count(*) AS TOTAL
+FROM DOTA
+GROUP BY CUARTEL
+ORDER BY Count(*) DESC;
+
+-- 6. Direcciones con provincia/distrito/corregimiento
+SELECT DNEMP, DLOCAL, DLUGAR, DCODP, DCODD, DCODC, DTEL, DTEL1, DTEL2
+FROM DIR
+ORDER BY DNEMP;
+
+-- 7. Areas, entidades y posiciones
+SELECT AREA, ENTIDAD, POSICION, Count(*) AS TOTAL
+FROM POLPLANI
+GROUP BY AREA, ENTIDAD, POSICION
+ORDER BY AREA, ENTIDAD, POSICION;
+
+-- 8. Vacantes por cargo y planilla
+SELECT EPCARGO, EPPLAN, EPPOSAN, Count(*) AS TOTAL
+FROM VACANTES
+GROUP BY EPCARGO, EPPLAN, EPPOSAN
+ORDER BY EPCARGO, EPPLAN;
