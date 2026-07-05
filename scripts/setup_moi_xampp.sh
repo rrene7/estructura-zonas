@@ -2,10 +2,8 @@
 set -euo pipefail
 
 MYSQL="/c/xampp/mysql/bin/mysql.exe"
-PHP="/c/xampp/php/php.exe"
 DB="estructura_zonas_test"
 USER="root"
-PASS=""
 
 cd "$(dirname "$0")/.."
 
@@ -25,6 +23,9 @@ echo "Creando modelo base..."
 
 echo "Aplicando adaptacion MOI..."
 "$MYSQL" -u "$USER" "$DB" < database/adaptacion_moi_65_16.sql
+
+echo "Aplicando versionado MOI..."
+"$MYSQL" -u "$USER" "$DB" < database/versionado_estructura_moi.sql
 
 echo "Creando config del dashboard si no existe..."
 if [ ! -f dashboard/config.php ]; then
