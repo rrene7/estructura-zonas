@@ -1,4 +1,6 @@
-# Listado de direcciones policiales
+# Listado de direcciones policiales vigentes
+
+Estas son las direcciones policiales vigentes actualmente y se usaran como cabeceras de direccion dentro de la estructura MOI.
 
 Listado de direcciones, sin porcentajes.
 
@@ -22,6 +24,9 @@ Listado de direcciones, sin porcentajes.
 18. Direccion Nacional de Operaciones de Transito
 19. Direccion de Transporte y Mantenimiento
 
-## Uso sugerido
+## Uso dentro del sistema
 
-Este listado puede usarse como base para validar las direcciones vigentes dentro de la estructura MOI, sin modificar el legacy historico.
+- Estas direcciones se cargan en `moi_direcciones_cabecera_vigentes`.
+- Funcionan como cabeceras de direccion para organizar unidades subordinadas, departamentos, secciones, oficinas y servicios.
+- Las direcciones antiguas que no coincidan con este catalogo no se borran automaticamente; quedan para revision de vigencia.
+- El legacy se mantiene intacto.
