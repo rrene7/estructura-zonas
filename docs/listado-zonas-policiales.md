@@ -1,4 +1,6 @@
-# Listado de zonas policiales
+# Listado de zonas policiales vigentes
+
+Estas son las zonas policiales vigentes actualmente y se usaran como cabeceras de zona dentro de la estructura MOI.
 
 Listado ordenado por numero de zona, sin porcentajes.
 
@@ -21,7 +23,14 @@ Listado ordenado por numero de zona, sin porcentajes.
 17. 19 Zona Policial - Chame
 18. 21 Zona Policial - San Francisco
 
-## Numeros no incluidos en el texto recibido
+## Uso dentro del sistema
+
+- Estas zonas se cargan en `moi_zonas_cabecera_vigentes`.
+- Funcionan como cabeceras de zona para organizar areas, estaciones, subestaciones, puestos y demas dependencias.
+- Las zonas antiguas que no coincidan con este catalogo no se borran automaticamente; quedan para revision de vigencia.
+- El legacy se mantiene intacto.
+
+## Numeros no incluidos en el listado vigente recibido
 
 - 5 Zona Policial
 - 17 Zona Policial
