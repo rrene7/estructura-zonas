@@ -54,6 +54,7 @@ $porAlcance = rows($pdo, 'SELECT * FROM vw_moi_unidades_por_alcance');
 $pendientes = rows($pdo, 'SELECT * FROM vw_moi_pendientes_revision LIMIT 50');
 $sinRelacion = rows($pdo, 'SELECT * FROM vw_moi_unidades_sin_relacion_superior LIMIT 50');
 $sedesSinUbicacion = rows($pdo, 'SELECT * FROM vw_moi_sedes_sin_ubicacion LIMIT 50');
+$noVigentes = rows($pdo, 'SELECT * FROM vw_moi_unidades_no_vigentes_dashboard LIMIT 50');
 
 $where = [];
 $params = [];
@@ -107,26 +108,29 @@ $alcancesFiltro = rows($pdo, 'SELECT DISTINCT territorial_scope FROM vw_moi_arbo
         .badge { display: inline-block; padding: 3px 7px; border-radius: 999px; background: #eef2ff; font-size: 12px; }
         .danger { background: #fef2f2; }
         .warn { background: #fffbeb; }
+        .info { background: #eff6ff; }
+        .muted { color: #6b7280; font-size: 12px; }
     </style>
 </head>
 <body>
 <header>
     <h1>Dashboard MOI 65.16</h1>
-    <p>Seguimiento de estructura institucional: unidades, sedes, relaciones, clasificacion y pendientes.</p>
+    <p>Estructura vigente, trazabilidad legacy y cambios posteriores.</p>
 </header>
 <main>
     <div class="grid">
-        <div class="card"><div class="label">Total unidades</div><div class="value"><?= e($resumen['total_unidades'] ?? '0') ?></div></div>
+        <div class="card"><div class="label">Unidades vigentes</div><div class="value"><?= e($resumen['total_unidades'] ?? '0') ?></div></div>
         <div class="card"><div class="label">Nacionales</div><div class="value"><?= e($resumen['unidades_nacionales'] ?? '0') ?></div></div>
         <div class="card"><div class="label">Regionales</div><div class="value"><?= e($resumen['unidades_regionales'] ?? '0') ?></div></div>
         <div class="card"><div class="label">Zonales</div><div class="value"><?= e($resumen['unidades_zonales'] ?? '0') ?></div></div>
         <div class="card"><div class="label">Sedes</div><div class="value"><?= e($resumen['sedes_detectadas'] ?? '0') ?></div></div>
+        <div class="card"><div class="label">No vigentes</div><div class="value"><?= e($resumen['unidades_no_vigentes'] ?? '0') ?></div></div>
         <div class="card"><div class="label">Pendientes</div><div class="value"><?= e($resumen['pendientes_revision'] ?? '0') ?></div></div>
     </div>
 
     <div class="two">
         <section>
-            <h2>Unidades por tipo</h2>
+            <h2>Unidades vigentes por tipo</h2>
             <table>
                 <thead><tr><th>Tipo</th><th>Total</th></tr></thead>
                 <tbody>
@@ -137,7 +141,7 @@ $alcancesFiltro = rows($pdo, 'SELECT DISTINCT territorial_scope FROM vw_moi_arbo
             </table>
         </section>
         <section>
-            <h2>Unidades por alcance</h2>
+            <h2>Unidades vigentes por alcance</h2>
             <table>
                 <thead><tr><th>Alcance</th><th>Total</th></tr></thead>
                 <tbody>
@@ -150,7 +154,8 @@ $alcancesFiltro = rows($pdo, 'SELECT DISTINCT territorial_scope FROM vw_moi_arbo
     </div>
 
     <section>
-        <h2>Arbol / listado de unidades</h2>
+        <h2>Arbol / listado de unidades vigentes</h2>
+        <p class="muted">El legacy se conserva como origen historico. Este listado muestra la estructura vigente.</p>
         <form class="filters" method="get">
             <input type="text" name="buscar" placeholder="Buscar unidad o codigo" value="<?= e($buscar) ?>">
             <select name="tipo">
@@ -170,7 +175,7 @@ $alcancesFiltro = rows($pdo, 'SELECT DISTINCT territorial_scope FROM vw_moi_arbo
         <table>
             <thead>
                 <tr>
-                    <th>Unidad</th><th>Superior</th><th>Tipo</th><th>Alcance</th><th>Mando</th><th>Codigo</th><th>Origen</th>
+                    <th>Unidad</th><th>Superior</th><th>Tipo</th><th>Alcance</th><th>Mando</th><th>Vigencia</th><th>Codigo</th><th>Origen</th>
                 </tr>
             </thead>
             <tbody>
@@ -181,6 +186,7 @@ $alcancesFiltro = rows($pdo, 'SELECT DISTINCT territorial_scope FROM vw_moi_arbo
                     <td><span class="badge"><?= e($row['tipo_unidad']) ?></span></td>
                     <td><?= e($row['territorial_scope']) ?></td>
                     <td><?= e($row['command_structure']) ?> / <?= e($row['command_relationship']) ?></td>
+                    <td><?= e($row['valid_from']) ?> - <?= e($row['valid_to'] ?: 'vigente') ?></td>
                     <td><?= e($row['code']) ?></td>
                     <td><?= e($row['legacy_table']) ?>: <?= e($row['legacy_id']) ?></td>
                 </tr>
@@ -228,6 +234,26 @@ $alcancesFiltro = rows($pdo, 'SELECT DISTINCT territorial_scope FROM vw_moi_arbo
             </table>
         </section>
     </div>
+
+    <section class="info">
+        <h2>Unidades no vigentes</h2>
+        <p class="muted">No se eliminan del sistema. Se conservan para trazabilidad historica.</p>
+        <table>
+            <thead><tr><th>Codigo</th><th>Unidad</th><th>Estado</th><th>Vigencia</th><th>Reemplazo</th><th>Nota</th></tr></thead>
+            <tbody>
+            <?php foreach ($noVigentes as $row): ?>
+                <tr>
+                    <td><?= e($row['code']) ?></td>
+                    <td><?= e($row['name']) ?></td>
+                    <td><?= e($row['lifecycle_status']) ?></td>
+                    <td><?= e($row['valid_from']) ?> - <?= e($row['valid_to']) ?></td>
+                    <td><?= e($row['unidad_reemplazo']) ?></td>
+                    <td><?= e($row['lifecycle_notes']) ?></td>
+                </tr>
+            <?php endforeach; ?>
+            </tbody>
+        </table>
+    </section>
 </main>
 </body>
 </html>
