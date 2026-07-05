@@ -15,6 +15,10 @@ Repositorio para documentar la estructura de la base Microsoft Access `SRHN_LOCA
 - `database/staging_ubicaciones_access.sql`: tablas puente para importar la estructura original de Access.
 - `database/clasificacion_moi_desde_staging.sql`: mesa de clasificacion previa y reglas automaticas iniciales.
 - `database/migracion_final_moi_desde_clasificacion.sql`: migracion final de registros revisados al modelo normalizado.
+- `database/dashboard_moi_views.sql`: vistas SQL para alimentar el dashboard.
+- `dashboard/index.php`: dashboard local en PHP para ver avance de la estructura.
+- `dashboard/config.example.php`: configuracion ejemplo de conexion local.
+- `dashboard/README.md`: instrucciones del dashboard.
 - `database/migracion_ubicaciones_desde_staging.sql`: borrador de migracion inicial desde staging.
 - `database/consultas_access_ubicaciones.sql`: consultas para ejecutar en Access y validar zonas, direcciones, dependencias y posiciones.
 
@@ -36,11 +40,15 @@ La estructura ahora debe separar unidad organizacional, sede fisica, relacion de
 Flujo recomendado:
 
 ```text
-Access -> staging -> clasificacion MOI -> revision manual -> migracion final -> validacion
+Access -> staging -> clasificacion MOI -> revision manual -> migracion final -> vistas dashboard -> dashboard
 ```
+
+## Dashboard
+
+El dashboard permite ver el avance de la estructura por total de unidades, alcance territorial, tipo de unidad, sedes, pendientes de revision, alertas y listado tipo arbol.
 
 No se sube el manual completo al repositorio. Solo se suben criterios de modelado, campos y scripts necesarios para adaptar la base de datos.
 
 ## Nota de seguridad
 
-No subir el archivo `.mdb` original, el manual completo, ni datos reales. Este repositorio debe contener solo estructura, documentacion tecnica y scripts de migracion.
+No subir el archivo `.mdb` original, el manual completo, datos reales ni credenciales. Este repositorio debe contener solo estructura, documentacion tecnica y scripts de migracion.
