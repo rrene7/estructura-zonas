@@ -8,10 +8,14 @@ Repositorio para documentar la estructura de la base Microsoft Access `SRHN_LOCA
 - `docs/modelo-ubicaciones-dependencias.md`: modelo propuesto para zonas, areas, direcciones, dependencias, oficinas, departamentos y ubicaciones fisicas.
 - `docs/mapeo-access-ubicaciones-dependencias.md`: mapeo de tablas Access relacionadas con ubicaciones y dependencias.
 - `docs/adaptacion-moi-65-16.md`: adaptacion del modelo al Manual de Organizacion Institucional MOI 65.16.
+- `docs/plan-implementacion-moi-65-16.md`: plan por fases para adaptar Access al modelo MOI.
+- `docs/checklist-ejecucion-moi-65-16.md`: checklist operativo para ejecutar la migracion.
 - `database/estructura_ubicaciones_dependencias.sql`: estructura normalizada propuesta en MySQL.
 - `database/adaptacion_moi_65_16.sql`: ampliacion del modelo para clasificacion MOI, relaciones de mando, sedes fisicas y nomenclatura institucional.
 - `database/staging_ubicaciones_access.sql`: tablas puente para importar la estructura original de Access.
-- `database/migracion_ubicaciones_desde_staging.sql`: borrador de migracion desde staging al modelo normalizado.
+- `database/clasificacion_moi_desde_staging.sql`: mesa de clasificacion previa y reglas automaticas iniciales.
+- `database/migracion_final_moi_desde_clasificacion.sql`: migracion final de registros revisados al modelo normalizado.
+- `database/migracion_ubicaciones_desde_staging.sql`: borrador de migracion inicial desde staging.
 - `database/consultas_access_ubicaciones.sql`: consultas para ejecutar en Access y validar zonas, direcciones, dependencias y posiciones.
 
 ## Tablas Access clave
@@ -28,6 +32,12 @@ Repositorio para documentar la estructura de la base Microsoft Access `SRHN_LOCA
 ## Adaptacion MOI 65.16
 
 La estructura ahora debe separar unidad organizacional, sede fisica, relacion de mando, alcance territorial y nomenclatura institucional.
+
+Flujo recomendado:
+
+```text
+Access -> staging -> clasificacion MOI -> revision manual -> migracion final -> validacion
+```
 
 No se sube el manual completo al repositorio. Solo se suben criterios de modelado, campos y scripts necesarios para adaptar la base de datos.
 
