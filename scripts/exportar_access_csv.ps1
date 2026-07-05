@@ -7,12 +7,12 @@ param(
 
 $ErrorActionPreference = "Stop"
 
-if (!(Test-Path $AccessPath)) {
-    Write-Host "No existe el archivo Access: $AccessPath"
+if (!(Test-Path -LiteralPath $AccessPath)) {
+    Write-Host "No existe el archivo indicado: $AccessPath"
     exit 1
 }
 
-if (!(Test-Path $OutputDir)) {
+if (!(Test-Path -LiteralPath $OutputDir)) {
     New-Item -ItemType Directory -Force -Path $OutputDir | Out-Null
 }
 
@@ -53,9 +53,8 @@ foreach ($provider in $providers) {
 }
 
 if ($null -eq $conn) {
-    Write-Host "No se pudo abrir la base Access."
+    Write-Host "No se pudo abrir la base."
     Write-Host "Ultimo error: $lastError"
-    Write-Host "Instale Microsoft Access Database Engine o abra Access y exporte manualmente."
     exit 1
 }
 
@@ -72,7 +71,7 @@ foreach ($table in $tables) {
         $dataTable | Export-Csv -Path $outFile -NoTypeInformation -Encoding UTF8
         Write-Host "OK: $outFile ($($dataTable.Rows.Count) registros)"
     } catch {
-        Write-Host "No se pudo exportar $table: $($_.Exception.Message)"
+        Write-Host ("Error exportando " + $table + " - " + $_.Exception.Message)
     }
 }
 
