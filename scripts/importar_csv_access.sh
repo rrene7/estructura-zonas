@@ -29,8 +29,14 @@ echo "Importando CSV hacia tablas staging..."
 echo "Ejecutando clasificacion MOI..."
 "$MYSQL" -u "$USER" "$DB" < database/clasificacion_moi_desde_staging.sql
 
+echo "Aplicando versionado MOI..."
+"$MYSQL" -u "$USER" "$DB" < database/versionado_estructura_moi.sql
+
 echo "Ejecutando migracion final MOI..."
 "$MYSQL" -u "$USER" "$DB" < database/migracion_final_moi_desde_clasificacion.sql
+
+echo "Aplicando versionado MOI despues de migrar..."
+"$MYSQL" -u "$USER" "$DB" < database/versionado_estructura_moi.sql
 
 echo "Creando vistas del dashboard..."
 "$MYSQL" -u "$USER" "$DB" < database/dashboard_moi_views.sql
