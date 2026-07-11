@@ -1,0 +1,10 @@
+# Archivos privados locales
+local/
+private/
+data/private/
+*.private.csv
+*.personal.csv
+*.xlsx
+*.xls
+*.mdb
+*.accdb
