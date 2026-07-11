@@ -14,5 +14,8 @@ fi
 echo "Aplicando catalogo DINSEC de areas/sectores en base: $DB_NAME"
 "$MYSQL_BIN" -u root "$DB_NAME" < "$ROOT_DIR/database/catalogo_sectores_dinsec.sql"
 
+echo "Limpiando duplicados del catalogo y reforzando indice unico..."
+php "$ROOT_DIR/scripts/limpiar_catalogo_sectores.php"
+
 echo "Listo. Resumen:"
 "$MYSQL_BIN" -u root "$DB_NAME" -e "SELECT zone_number, zone_label, COALESCE(area_code,'SERV') area, COUNT(*) total FROM moi_area_sector_catalog GROUP BY zone_number, zone_label, COALESCE(area_code,'SERV') ORDER BY zone_number, area;"
