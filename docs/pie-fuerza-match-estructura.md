@@ -1,73 +1,65 @@
-# PIE DE FUERZA 26-6-2026: asignación contra estructura vigente
-
-## Objetivo
-
-Importar las columnas `Rango`, `Posición`, `Nombre`, `Apellido`, `Ubicación` y `Tipo Policía` de la hoja **PIE DE FUERZA 26-6-2026** y vincular cada persona únicamente con unidades que ya existan en `organizational_units`.
+# PIE DE FUERZA 26-6-2026 contra estructura vigente
 
 ## Regla institucional
 
-El archivo de pie de fuerza es una fuente de personal y ubicación declarada. No es una fuente para construir la estructura.
+El archivo privado de pie de fuerza es una fuente de personas y ubicaciones heredadas. No es una fuente autorizada para crear o modificar estructura.
 
-El módulo:
+El proceso solamente puede:
 
-- no crea zonas, direcciones, áreas, servicios o dependencias;
-- no cambia `parent_id`;
-- no renombra unidades;
-- no modifica vigencias;
-- conserva la ubicación original para auditoría;
-- permite asignar una persona a una zona o dirección mientras el nivel inferior queda pendiente.
+1. importar las personas;
+2. conservar exactamente la ubicación original;
+3. comparar esa ubicación con unidades vigentes existentes;
+4. vincular a la unidad más específica confirmada;
+5. dejar pendiente cualquier nivel inferior que no pueda demostrarse;
+6. enviar coincidencias ambiguas a revisión.
 
-## Estados
-
-- `asignado_completo`: se encontró una unidad vigente específica y única.
-- `asignado_parcial`: se confirmó una zona, dirección o área, pero falta identificar un nivel inferior.
-- `pendiente_revision`: no existe una coincidencia automática suficientemente segura.
-- `sin_coincidencia`: una revisión manual confirmó que la ubicación no existe en la estructura vigente.
+Nunca debe crear zonas, direcciones, áreas, servicios, dependencias, estaciones ni puestos desde el Excel.
 
 ## Archivos privados
 
-Colocar el archivo en:
+Ubicación recomendada:
 
 ```text
 local/private/PIE_DE_FUERZA_2026-06-26.xlsx
 ```
 
-La carpeta y los archivos XLSX/CSV están excluidos por `.gitignore`.
+La carpeta y los archivos XLSX están excluidos por `.gitignore`.
 
-## Instalación y carga
+## Columnas utilizadas
 
-Desde Git Bash:
+La hoja `PIE DE FUERZA 26-6-2026` debe contener:
+
+- Rango
+- Posición
+- Nombre
+- Apellido
+- Ubicación
+- Tipo Policía
+
+El importador normaliza encabezados para aceptar variantes de acentos y espacios.
+
+## Ejecución
+
+Desde Git Bash en la raíz del proyecto:
 
 ```bash
-cd /c/xampp/htdocs/estructura-zonas
 bash scripts/cargar_pie_fuerza_20260626.sh
 ```
 
-También se puede indicar otra ruta:
+El script ejecuta:
 
-```bash
-bash scripts/cargar_pie_fuerza_20260626.sh "/c/ruta/PIE_DE_FUERZA.xlsx"
-```
+1. `database/pie_fuerza_20260626.sql`;
+2. `scripts/importar_pie_fuerza.php`;
+3. `scripts/matchear_pie_fuerza.php`.
 
-El proceso ejecuta:
+## Estados
 
-1. `database/pie_fuerza_20260626.sql`
-2. `scripts/importar_pie_fuerza.php`
-3. `scripts/matchear_pie_fuerza.php`
+- `asignado_completo`: la ubicación coincide con una unidad específica existente.
+- `asignado_parcial`: se confirmó una zona, dirección o área; el nivel inferior sigue pendiente.
+- `pendiente_revision`: no existe una coincidencia única y segura.
+- `sin_coincidencia`: una revisión confirmó que la ubicación no existe en la estructura vigente.
 
-## Reprocesar el match
-
-```bash
-php scripts/matchear_pie_fuerza.php --source-key=PIE_FUERZA_20260626
-```
-
-Las asignaciones aprobadas manualmente se conservan. Para recalcular incluso esas asignaciones:
-
-```bash
-php scripts/matchear_pie_fuerza.php --source-key=PIE_FUERZA_20260626 --forzar=1
-```
-
-## Dashboard
+## Revisión individual
 
 Abrir:
 
@@ -75,30 +67,48 @@ Abrir:
 http://localhost/estructura-zonas/dashboard/pie_fuerza.php
 ```
 
-El tablero muestra:
+Cada persona puede revisarse mediante `pie_fuerza_revision.php`. La pantalla valida que la unidad seleccionada esté activa y vigente antes de guardar.
 
-- total importado;
-- asignaciones completas;
-- asignaciones parciales;
-- pendientes;
-- personas por unidad confirmada;
-- exportación CSV;
-- revisión manual contra unidades vigentes.
+## Revisión masiva por ubicación
 
-La revisión manual solo permite seleccionar un registro existente de `organizational_units`.
+Abrir:
 
-## Validación de seguridad
-
-Después de la carga se puede comprobar que el módulo no creó estructura comparando el conteo antes y después:
-
-```sql
-SELECT COUNT(*) FROM organizational_units;
+```text
+http://localhost/estructura-zonas/dashboard/pie_fuerza_masiva.php
 ```
 
-También se puede revisar la fuente y sus resultados:
+Esta pantalla agrupa todas las personas por `location_normalized`, mostrando:
 
-```sql
-SELECT * FROM vw_workforce_summary;
-SELECT * FROM vw_workforce_match_detail
-ORDER BY row_number;
+- ubicación original;
+- cantidad de personas;
+- completos, parciales y pendientes;
+- unidad actualmente sugerida;
+- excepciones individuales existentes.
+
+Una decisión puede aplicarse a todo el grupo como:
+
+- asignación completa;
+- asignación parcial, indicando el nivel pendiente;
+- sin coincidencia.
+
+La revisión masiva solo permite escoger unidades activas y vigentes ya registradas. Los registros previamente aprobados mediante `revision_manual` se conservan como excepciones y no son sobrescritos por una decisión grupal.
+
+Después de aprobar un grupo, este sale de la bandeja `Por revisar`, aunque conserve el estado institucional `asignado_parcial` por tener un nivel inferior pendiente.
+
+## Reprocesamiento
+
+El motor automático puede ejecutarse nuevamente:
+
+```bash
+php scripts/matchear_pie_fuerza.php --source=PIE_FUERZA_20260626
 ```
+
+Las decisiones de revisión individual o masiva aprobadas se conservan. El reprocesamiento automático no modifica `organizational_units`.
+
+## Seguridad
+
+- No subir el Excel ni CSV con datos personales.
+- No almacenar credenciales en el repositorio.
+- Revisar coincidencias ambiguas antes de aprobarlas.
+- Mantener respaldos de la base antes de una carga masiva.
+- Confirmar una unidad por su nombre, código y superior jerárquico.
