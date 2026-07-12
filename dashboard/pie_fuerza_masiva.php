@@ -303,7 +303,7 @@ if ($sourceId > 0) {
                 SUM(CASE WHEN COALESCE(m.review_status,'pendiente')='aprobado' THEN 1 ELSE 0 END) AS aprobados,
                 SUM(CASE WHEN COALESCE(m.match_method,'')='revision_manual' THEN 1 ELSE 0 END) AS excepciones_manuales,
                 SUM(CASE WHEN COALESCE(m.assignment_status,'pendiente_revision') IN ('pendiente_revision','asignado_parcial')
-                          AND COALESCE(m.match_method,'')<>'revision_manual' THEN 1 ELSE 0 END) AS por_revisar,
+                          AND COALESCE(m.review_status,'pendiente')<>'aprobado' THEN 1 ELSE 0 END) AS por_revisar,
                 COUNT(DISTINCT m.matched_unit_id) AS unidades_distintas,
                 GROUP_CONCAT(DISTINCT ou.name ORDER BY ou.name SEPARATOR ' | ') AS unidades_confirmadas
          FROM workforce_personnel_staging p
