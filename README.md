@@ -10,7 +10,7 @@ Repositorio para documentar la estructura de la base Microsoft Access `SRHN_LOCA
 - `docs/adaptacion-moi-65-16.md`: adaptacion del modelo al Manual de Organizacion Institucional MOI 65.16.
 - `docs/plan-implementacion-moi-65-16.md`: plan por fases para adaptar Access al modelo MOI.
 - `docs/checklist-ejecucion-moi-65-16.md`: checklist operativo para ejecutar la migracion.
-- `docs/pie-fuerza-match-estructura.md`: carga del PIE DE FUERZA 26-6-2026 y asignacion exclusiva contra unidades vigentes existentes.
+- `docs/pie-fuerza-match-estructura.md`: carga del PIE DE FUERZA 26-6-2026, asignacion exclusiva contra unidades vigentes y revision individual o masiva.
 - `database/estructura_ubicaciones_dependencias.sql`: estructura normalizada propuesta en MySQL.
 - `database/adaptacion_moi_65_16.sql`: ampliacion del modelo para clasificacion MOI, relaciones de mando, sedes fisicas y nomenclatura institucional.
 - `database/staging_ubicaciones_access.sql`: tablas puente para importar la estructura original de Access.
@@ -23,7 +23,8 @@ Repositorio para documentar la estructura de la base Microsoft Access `SRHN_LOCA
 - `scripts/cargar_pie_fuerza_20260626.sh`: ejecuta instalacion, importacion y match.
 - `dashboard/index.php`: dashboard local en PHP para ver avance de la estructura.
 - `dashboard/pie_fuerza.php`: resumen, filtros, personal y asignaciones del pie de fuerza.
-- `dashboard/pie_fuerza_revision.php`: revision manual contra unidades vigentes.
+- `dashboard/pie_fuerza_masiva.php`: revision masiva agrupada por ubicacion original.
+- `dashboard/pie_fuerza_revision.php`: revision manual individual y manejo de excepciones.
 - `dashboard/config.example.php`: configuracion ejemplo de conexion local.
 - `dashboard/README.md`: instrucciones del dashboard.
 - `database/migracion_ubicaciones_desde_staging.sql`: borrador de migracion inicial desde staging.
@@ -66,6 +67,8 @@ Carga local:
 bash scripts/cargar_pie_fuerza_20260626.sh
 ```
 
+La revision masiva agrupa personas por ubicacion normalizada, permite aplicar una unidad vigente a todo el grupo y conserva las revisiones individuales como excepciones.
+
 ## Dashboard
 
 El dashboard permite ver el avance de la estructura por total de unidades, alcance territorial, tipo de unidad, sedes, pendientes de revision, alertas y listado tipo arbol.
@@ -74,6 +77,7 @@ El modulo del pie de fuerza esta disponible en:
 
 ```text
 http://localhost/estructura-zonas/dashboard/pie_fuerza.php
+http://localhost/estructura-zonas/dashboard/pie_fuerza_masiva.php
 ```
 
 No se sube el manual completo al repositorio. Solo se suben criterios de modelado, campos y scripts necesarios para adaptar la base de datos.
