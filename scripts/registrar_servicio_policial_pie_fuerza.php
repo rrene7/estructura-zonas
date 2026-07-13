@@ -1,18 +1,20 @@
 <?php
 declare(strict_types=1);
 
-// Registra o reutiliza una cabecera vigente de servicio policial bajo la cabecera
-// canonica de Direccion General y asigna registros del PIE DE FUERZA mediante un
-// token de ubicacion confirmado externamente.
+// Registra o reutiliza una cabecera vigente de servicio policial bajo una unidad
+// superior confirmada y asigna registros del PIE DE FUERZA mediante un token de
+// ubicacion normalizado.
 //
-// Este script es generico: los datos institucionales se suministran por CLI y no
-// quedan codificados en el repositorio.
+// Los datos institucionales se suministran por CLI y no quedan codificados en el
+// repositorio.
 //
 // Uso:
 // php scripts/registrar_servicio_policial_pie_fuerza.php \
 //   --name="Nombre oficial" \
 //   --short="SIGLA" \
 //   --moi-code="CODIGO" \
+//   --parent-legacy-table="TABLA" \
+//   --parent-legacy-id="ID" \
 //   --location-token="TOKEN NORMALIZADO" \
 //   --valid-from="YYYY-MM-DD"
 
@@ -26,6 +28,8 @@ $options = getopt('', [
     'name:',
     'short:',
     'moi-code:',
+    'parent-legacy-table:',
+    'parent-legacy-id:',
     'location-token:',
     'valid-from::',
     'source-key::',
@@ -34,12 +38,15 @@ $options = getopt('', [
 $name = trim((string)($options['name'] ?? ''));
 $short = trim((string)($options['short'] ?? ''));
 $moiCode = trim((string)($options['moi-code'] ?? ''));
+$parentLegacyTable = trim((string)($options['parent-legacy-table'] ?? ''));
+$parentLegacyId = trim((string)($options['parent-legacy-id'] ?? ''));
 $locationToken = trim((string)($options['location-token'] ?? ''));
 $validFrom = trim((string)($options['valid-from'] ?? date('Y-m-d')));
 $sourceKey = trim((string)($options['source-key'] ?? 'PIE_FUERZA_20260626'));
 
-if ($name === '' || $short === '' || $moiCode === '' || $locationToken === '') {
-    fwrite(STDERR, "Faltan parametros obligatorios: --name, --short, --moi-code y --location-token.\n");
+$requiredValues = [$name, $short, $moiCode, $parentLegacyTable, $parentLegacyId, $locationToken];
+if (in_array('', $requiredValues, true)) {
+    fwrite(STDERR, "Faltan parametros obligatorios. Revise --name, --short, --moi-code, --parent-legacy-table, --parent-legacy-id y --location-token.\n");
     exit(1);
 }
 if (preg_match('/^\d{4}-\d{2}-\d{2}$/', $validFrom) !== 1) {
@@ -96,9 +103,7 @@ function tableExists(PDO $pdo, string $table): bool
 }
 
 $normalizedToken = normalizeKey($locationToken);
-$normalizedShort = normalizeKey($short);
-$normalizedMoiCode = normalizeKey($moiCode);
-if ($normalizedToken === '' || $normalizedShort === '' || $normalizedMoiCode === '') {
+if ($normalizedToken === '' || normalizeKey($short) === '' || normalizeKey($moiCode) === '') {
     fwrite(STDERR, "Los parametros normalizados no pueden quedar vacios.\n");
     exit(1);
 }
@@ -113,24 +118,26 @@ foreach (['organizational_units','unit_types','workforce_sources','workforce_per
 try {
     $pdo->beginTransaction();
 
-    $roots = rows(
+    $parents = rows(
         $pdo,
-        "SELECT ou.id,ou.name,ou.level,ou.moi_level
+        "SELECT ou.id,ou.name,ou.level,ou.moi_level,ou.status,ou.lifecycle_status
          FROM organizational_units ou
-         LEFT JOIN unit_types ut ON ut.id=ou.unit_type_id
-         WHERE BINARY ou.legacy_table=BINARY 'MOI_CABECERA_DIRECCION'
-           AND CAST(ou.legacy_id AS UNSIGNED)=1
-           AND ut.name='directorio_general'
+         WHERE BINARY ou.legacy_table=BINARY :legacy_table
+           AND CAST(ou.legacy_id AS CHAR)=:legacy_id
            AND ou.status='active'
            AND ou.lifecycle_status='vigente'
            AND (ou.valid_from IS NULL OR ou.valid_from<=CURRENT_DATE)
            AND (ou.valid_to IS NULL OR ou.valid_to>=CURRENT_DATE)
-         FOR UPDATE"
+         FOR UPDATE",
+        [
+            'legacy_table'=>$parentLegacyTable,
+            'legacy_id'=>$parentLegacyId,
+        ]
     );
-    if (count($roots) !== 1) {
-        throw new RuntimeException('Se esperaba una sola cabecera canonica vigente de Direccion General y se encontraron ' . count($roots) . '.');
+    if (count($parents) !== 1) {
+        throw new RuntimeException('Se esperaba una sola unidad superior activa y vigente; se encontraron ' . count($parents) . '.');
     }
-    $root = $roots[0];
+    $parent = $parents[0];
 
     $pdo->exec(
         "INSERT IGNORE INTO unit_types (name,description,created_at,updated_at)
@@ -145,15 +152,12 @@ try {
         $pdo,
         "SELECT ou.id,ou.parent_id,ou.name,ou.short_name,ou.code,ou.moi_code,ou.status,ou.lifecycle_status
          FROM organizational_units ou
-         WHERE (
-              UPPER(COALESCE(ou.short_name,''))=UPPER(:short_name)
-              OR UPPER(COALESCE(ou.code,''))=UPPER(:code)
-              OR UPPER(COALESCE(ou.moi_code,''))=UPPER(:moi_code)
-         )
+         WHERE UPPER(COALESCE(ou.short_name,''))=UPPER(:short_name)
+            OR UPPER(COALESCE(ou.code,''))=UPPER(:code)
+            OR UPPER(COALESCE(ou.moi_code,''))=UPPER(:moi_code)
          FOR UPDATE",
         ['short_name'=>$short,'code'=>$moiCode,'moi_code'=>$moiCode]
     );
-
     if (count($serviceCandidates) > 1) {
         throw new RuntimeException('Hay varias unidades candidatas con la misma sigla o codigo. No se aplicaron cambios.');
     }
@@ -175,14 +179,14 @@ try {
               'MOI_CABECERA_SERVICIO',:legacy_id,NOW(),NOW())"
         );
         $insertService->execute([
-            'parent_id'=>(int)$root['id'],
+            'parent_id'=>(int)$parent['id'],
             'unit_type_id'=>(int)$serviceType['id'],
             'code'=>$moiCode,
             'moi_code'=>$moiCode,
             'name'=>$name,
             'short_name'=>$short,
-            'level'=>((int)($root['level'] ?? 0)) + 1,
-            'moi_level'=>((int)($root['moi_level'] ?? 0)) + 1,
+            'level'=>((int)($parent['level'] ?? 0)) + 1,
+            'moi_level'=>((int)($parent['moi_level'] ?? 0)) + 1,
             'valid_from'=>$validFrom,
             'legacy_id'=>$moiCode,
         ]);
@@ -190,8 +194,8 @@ try {
         $created = true;
     } else {
         $service = $serviceCandidates[0];
-        if ((int)$service['parent_id'] !== (int)$root['id']) {
-            throw new RuntimeException('La unidad candidata existente no depende de la cabecera canonica de Direccion General. No se aplicaron cambios.');
+        if ((int)$service['parent_id'] !== (int)$parent['id']) {
+            throw new RuntimeException('La unidad candidata existente no depende de la unidad superior indicada. No se aplicaron cambios.');
         }
         if (($service['status'] ?? '') !== 'active' || ($service['lifecycle_status'] ?? '') !== 'vigente') {
             throw new RuntimeException('La unidad candidata existente no esta activa y vigente. No se aplicaron cambios.');
@@ -207,18 +211,18 @@ try {
                     'Relacion jerarquica de servicio policial validada institucionalmente.',NOW(),NOW()
              WHERE NOT EXISTS (
                  SELECT 1 FROM organizational_unit_relationships
-                 WHERE source_unit_id=:source_id_check
-                   AND target_unit_id=:target_id_check
+                 WHERE source_unit_id=:source_check
+                   AND target_unit_id=:target_check
                    AND relationship_type='jerarquica'
                    AND status='active'
              )"
         );
         $relationship->execute([
             'source_id'=>$serviceId,
-            'target_id'=>(int)$root['id'],
+            'target_id'=>(int)$parent['id'],
             'valid_from'=>$validFrom,
-            'source_id_check'=>$serviceId,
-            'target_id_check'=>(int)$root['id'],
+            'source_check'=>$serviceId,
+            'target_check'=>(int)$parent['id'],
         ]);
     }
 
@@ -319,14 +323,14 @@ try {
 
     echo 'Servicio: ' . $name . "\n";
     echo 'ID: ' . $serviceId . "\n";
-    echo 'Cabecera superior: ' . $root['name'] . ' [' . $root['id'] . "]\n";
+    echo 'Unidad superior: ' . $parent['name'] . ' [' . $parent['id'] . "]\n";
     echo 'Unidad creada: ' . ($created ? 'SI' : 'NO, se reutilizo la existente') . "\n";
     echo 'Registros encontrados por token: ' . count($people) . "\n";
     echo 'Asignaciones completas: ' . $complete . "\n";
     echo 'Asignaciones parciales: ' . $partial . "\n";
     echo 'Revisiones manuales conservadas: ' . $manualPreserved . "\n";
     echo 'Otras revisiones aprobadas conservadas: ' . $approvedPreserved . "\n";
-    echo "El conteo principal queda en el servicio policial.\n";
+    echo "El conteo principal queda en el servicio policial y consolida en su unidad superior.\n";
 } catch (Throwable $exception) {
     if ($pdo->inTransaction()) {
         $pdo->rollBack();
