@@ -48,9 +48,11 @@ CREATE TABLE IF NOT EXISTS workforce_unit_matches (
     id BIGINT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
     personnel_staging_id BIGINT UNSIGNED NOT NULL,
     matched_unit_id BIGINT UNSIGNED NULL,
+    territorial_zone_unit_id BIGINT UNSIGNED NULL,
     matched_level ENUM('zona','direccion','area','dependencia','servicio','unidad','otro','ninguno') NOT NULL DEFAULT 'ninguno',
     assignment_status ENUM('asignado_completo','asignado_parcial','pendiente_revision','sin_coincidencia') NOT NULL DEFAULT 'pendiente_revision',
     pending_level VARCHAR(120) NULL,
+    internal_detail VARCHAR(180) NULL,
     match_method VARCHAR(80) NULL,
     confidence_level ENUM('alto','medio','bajo') NOT NULL DEFAULT 'bajo',
     candidate_count INT NOT NULL DEFAULT 0,
@@ -63,6 +65,7 @@ CREATE TABLE IF NOT EXISTS workforce_unit_matches (
     updated_at TIMESTAMP NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
     UNIQUE KEY uq_workforce_person_match (personnel_staging_id),
     INDEX idx_workforce_match_unit (matched_unit_id),
+    INDEX idx_workforce_territorial_zone (territorial_zone_unit_id),
     INDEX idx_workforce_match_status (assignment_status, review_status),
     INDEX idx_workforce_match_level (matched_level),
     CONSTRAINT fk_workforce_match_person
@@ -72,6 +75,15 @@ CREATE TABLE IF NOT EXISTS workforce_unit_matches (
         FOREIGN KEY (matched_unit_id) REFERENCES organizational_units(id)
         ON DELETE SET NULL
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+-- Compatibilidad con instalaciones creadas antes de separar unidad funcional,
+-- zona territorial y detalle interno.
+ALTER TABLE workforce_unit_matches
+    ADD COLUMN IF NOT EXISTS territorial_zone_unit_id BIGINT UNSIGNED NULL AFTER matched_unit_id,
+    ADD COLUMN IF NOT EXISTS internal_detail VARCHAR(180) NULL AFTER pending_level;
+
+ALTER TABLE workforce_unit_matches
+    ADD INDEX IF NOT EXISTS idx_workforce_territorial_zone (territorial_zone_unit_id);
 
 CREATE OR REPLACE VIEW vw_workforce_match_detail AS
 SELECT
@@ -92,9 +104,11 @@ SELECT
     p.police_type_original,
     m.id AS match_id,
     m.matched_unit_id,
+    m.territorial_zone_unit_id,
     m.matched_level,
     m.assignment_status,
     m.pending_level,
+    m.internal_detail,
     m.match_method,
     m.confidence_level,
     m.candidate_count,
@@ -108,13 +122,16 @@ SELECT
     ou.legacy_id AS matched_unit_legacy_id,
     ut.name AS matched_unit_type,
     parent.id AS parent_unit_id,
-    parent.name AS parent_unit_name
+    parent.name AS parent_unit_name,
+    territorial.name AS territorial_zone_name,
+    territorial.code AS territorial_zone_code
 FROM workforce_personnel_staging p
 JOIN workforce_sources s ON s.id = p.source_id
 LEFT JOIN workforce_unit_matches m ON m.personnel_staging_id = p.id
 LEFT JOIN organizational_units ou ON ou.id = m.matched_unit_id
 LEFT JOIN unit_types ut ON ut.id = ou.unit_type_id
-LEFT JOIN organizational_units parent ON parent.id = ou.parent_id;
+LEFT JOIN organizational_units parent ON parent.id = ou.parent_id
+LEFT JOIN organizational_units territorial ON territorial.id = m.territorial_zone_unit_id;
 
 CREATE OR REPLACE VIEW vw_workforce_summary AS
 SELECT
@@ -127,7 +144,9 @@ SELECT
     SUM(CASE WHEN m.assignment_status = 'asignado_completo' THEN 1 ELSE 0 END) AS asignados_completos,
     SUM(CASE WHEN m.assignment_status = 'asignado_parcial' THEN 1 ELSE 0 END) AS asignados_parciales,
     SUM(CASE WHEN m.assignment_status = 'pendiente_revision' OR m.id IS NULL THEN 1 ELSE 0 END) AS pendientes_revision,
-    SUM(CASE WHEN m.assignment_status = 'sin_coincidencia' THEN 1 ELSE 0 END) AS sin_coincidencia
+    SUM(CASE WHEN m.assignment_status = 'sin_coincidencia' THEN 1 ELSE 0 END) AS sin_coincidencia,
+    SUM(CASE WHEN m.territorial_zone_unit_id IS NOT NULL THEN 1 ELSE 0 END) AS con_zona_territorial,
+    SUM(CASE WHEN NULLIF(TRIM(COALESCE(m.internal_detail, '')), '') IS NOT NULL THEN 1 ELSE 0 END) AS con_detalle_interno
 FROM workforce_sources s
 LEFT JOIN workforce_personnel_staging p ON p.source_id = s.id AND p.import_status = 'importado'
 LEFT JOIN workforce_unit_matches m ON m.personnel_staging_id = p.id
