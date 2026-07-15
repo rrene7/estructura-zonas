@@ -132,25 +132,62 @@ if ($sourceId > 0 && $code === 'DN-01') {
 
 $children = rows(
     $pdo,
-    "SELECT
-        child.id,
-        child.code,
-        child.name,
-        child.short_name,
-        child.level,
-        child.moi_level,
-        child.territorial_scope,
-        (SELECT COUNT(*)
-         FROM workforce_unit_matches m
-         JOIN workforce_personnel_staging p ON p.id = m.personnel_staging_id
-         WHERE m.matched_unit_id = child.id
-           AND p.source_id = :source_id) AS personal_directo
-     FROM organizational_units child
-     WHERE child.parent_id = :parent_id
-       AND child.status = 'active'
-       AND child.lifecycle_status = 'vigente'
-     ORDER BY COALESCE(child.moi_level, child.level, 99), child.name",
-    ['source_id' => $sourceId, 'parent_id' => $unitId]
+    "SELECT child_summary.*
+     FROM (
+        SELECT
+            child.id,
+            child.code,
+            child.name,
+            child.short_name,
+            child.level,
+            child.moi_level,
+            child.territorial_scope,
+            child.legacy_table,
+            (SELECT COUNT(*)
+             FROM workforce_unit_matches m
+             JOIN workforce_personnel_staging p ON p.id = m.personnel_staging_id
+             WHERE m.matched_unit_id = child.id
+               AND p.source_id = :source_direct) AS personal_directo,
+            (SELECT COUNT(*)
+             FROM workforce_unit_matches m
+             JOIN workforce_personnel_staging p ON p.id = m.personnel_staging_id
+             WHERE m.territorial_zone_unit_id = child.id
+               AND p.source_id = :source_territorial) AS referencia_territorial,
+            (SELECT COUNT(*)
+             FROM organizational_units grandchild
+             WHERE grandchild.parent_id = child.id
+               AND grandchild.status = 'active'
+               AND grandchild.lifecycle_status = 'vigente') AS unidades_hijas
+        FROM organizational_units child
+        WHERE child.parent_id = :parent_id
+          AND child.status = 'active'
+          AND child.lifecycle_status = 'vigente'
+          AND NOT (
+              UPPER(TRIM(COALESCE(child.legacy_table, ''))) = 'TABCUAR'
+              AND EXISTS (
+                  SELECT 1
+                  FROM organizational_units canonical
+                  WHERE canonical.id <> child.id
+                    AND canonical.status = 'active'
+                    AND canonical.lifecycle_status = 'vigente'
+                    AND canonical.legacy_table IN ('MOI_CABECERA_DIRECCION', 'MOI_CABECERA_ZONA')
+                    AND UPPER(TRIM(canonical.name)) = UPPER(TRIM(child.name))
+              )
+          )
+     ) child_summary
+     WHERE child_summary.personal_directo > 0
+        OR child_summary.referencia_territorial > 0
+        OR child_summary.unidades_hijas > 0
+     ORDER BY
+        child_summary.personal_directo DESC,
+        child_summary.unidades_hijas DESC,
+        COALESCE(child_summary.moi_level, child_summary.level, 99),
+        child_summary.name",
+    [
+        'source_direct' => $sourceId,
+        'source_territorial' => $sourceId,
+        'parent_id' => $unitId,
+    ]
 );
 
 $people = $sourceId > 0
@@ -254,7 +291,7 @@ render_breadcrumbs([
         <div class="panel-header">
             <div>
                 <h2>Dependencias y unidades subordinadas</h2>
-                <p>Seleccione una para continuar navegando dentro de la estructura.</p>
+                <p>Solo se muestran unidades con personal, referencias territoriales o dependencias vigentes para continuar navegando.</p>
             </div>
         </div>
         <div class="unit-list">
@@ -263,15 +300,32 @@ render_breadcrumbs([
                     <div>
                         <h3><a href="unidad_detalle.php?id=<?= h($child['id']) ?>&source_id=<?= h($sourceId) ?>"><?= h($child['name']) ?></a></h3>
                         <p><?= h($child['code'] ?: 'Sin código visible') ?></p>
+                        <div class="unit-meta">
+                            <?php if ((int)$child['unidades_hijas'] > 0): ?>
+                                <span class="badge info"><?= h(format_number($child['unidades_hijas'])) ?> dependencias</span>
+                            <?php endif; ?>
+                            <?php if ((int)$child['referencia_territorial'] > 0): ?>
+                                <span class="badge success"><?= h(format_number($child['referencia_territorial'])) ?> referencias territoriales</span>
+                            <?php endif; ?>
+                        </div>
                     </div>
                     <div class="unit-count">
-                        <strong><?= h(format_number($child['personal_directo'])) ?></strong>
-                        <span>personal directo</span>
+                        <?php if ((int)$child['personal_directo'] > 0): ?>
+                            <strong><?= h(format_number($child['personal_directo'])) ?></strong>
+                            <span>personal directo</span>
+                        <?php else: ?>
+                            <strong><?= h(format_number($child['unidades_hijas'])) ?></strong>
+                            <span>dependencias para consultar</span>
+                        <?php endif; ?>
                         <a class="button soft" href="unidad_detalle.php?id=<?= h($child['id']) ?>&source_id=<?= h($sourceId) ?>">Abrir</a>
                     </div>
                 </article>
             <?php endforeach; ?>
         </div>
+    </section>
+<?php else: ?>
+    <section class="panel">
+        <div class="notice info">No hay dependencias con personal o unidades subordinadas vigentes para mostrar.</div>
     </section>
 <?php endif; ?>
 
