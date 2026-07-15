@@ -1,32 +1,238 @@
 <?php
 declare(strict_types=1);
 
-$configPath=__DIR__.'/config.php';
-if(!is_file($configPath)){http_response_code(500);echo '<h1>Dashboard MOI</h1><p>Falta dashboard/config.php</p>';exit;}
-$config=require $configPath;
-$dsn=sprintf('mysql:host=%s;port=%s;dbname=%s;charset=%s',$config['db_host'],$config['db_port'],$config['db_name'],$config['charset']);
-try{$pdo=new PDO($dsn,$config['db_user'],$config['db_pass'],[PDO::ATTR_ERRMODE=>PDO::ERRMODE_EXCEPTION,PDO::ATTR_DEFAULT_FETCH_MODE=>PDO::FETCH_ASSOC]);$pdo->exec('SET NAMES utf8mb4 COLLATE utf8mb4_unicode_ci');}
-catch(Throwable $e){http_response_code(500);echo '<h1>Error de conexion</h1><p>'.htmlspecialchars($e->getMessage()).'</p>';exit;}
-function rows(PDO $pdo,string $sql,array $p=[]):array{$s=$pdo->prepare($sql);$s->execute($p);return $s->fetchAll();}
-function one(PDO $pdo,string $sql,array $p=[]):array{$r=rows($pdo,$sql,$p);return $r[0]??[];}
-function e(mixed $v):string{return htmlspecialchars((string)$v,ENT_QUOTES,'UTF-8');}
-function table_exists(PDO $pdo,string $t):bool{$s=$pdo->prepare('SELECT COUNT(*) total FROM information_schema.tables WHERE table_schema=DATABASE() AND table_name=:t');$s->execute(['t'=>$t]);return (int)($s->fetch()['total']??0)>0;}
+require __DIR__ . '/includes/bootstrap.php';
+require __DIR__ . '/includes/layout.php';
 
-$tipo=(string)($_GET['tipo']??'');$alcance=(string)($_GET['alcance']??'');$buscar=trim((string)($_GET['buscar']??''));
-$resumen=one($pdo,'SELECT * FROM vw_moi_resumen_general');$porTipo=rows($pdo,'SELECT * FROM vw_moi_unidades_por_tipo WHERE total > 0');$porAlcance=rows($pdo,'SELECT * FROM vw_moi_unidades_por_alcance');
-$zonasCabeceraTotal=table_exists($pdo,'moi_zonas_cabecera_vigentes')?(one($pdo,"SELECT COUNT(*) total FROM moi_zonas_cabecera_vigentes WHERE lifecycle_status='vigente'")['total']??0):0;
-$direccionesCabeceraTotal=table_exists($pdo,'moi_direcciones_cabecera_vigentes')?(one($pdo,"SELECT COUNT(*) total FROM moi_direcciones_cabecera_vigentes WHERE lifecycle_status='vigente'")['total']??0):0;
-$hasWorkforce=table_exists($pdo,'workforce_sources')&&table_exists($pdo,'workforce_personnel_staging')&&table_exists($pdo,'workforce_unit_matches')&&table_exists($pdo,'vw_workforce_summary');
-$workforceSummary=$hasWorkforce?one($pdo,'SELECT * FROM vw_workforce_summary ORDER BY document_date DESC,source_id DESC LIMIT 1'):[];
-$where=[];$params=[];
-if($tipo!==''){$where[]='tipo_unidad=:tipo';$params['tipo']=$tipo;}if($alcance!==''){$where[]='territorial_scope=:alcance';$params['alcance']=$alcance;}if($buscar!==''){$where[]='(name LIKE :buscar OR code LIKE :buscar OR moi_code LIKE :buscar)';$params['buscar']='%'.$buscar.'%';}
-$sql='SELECT * FROM vw_moi_arbol_unidades'.($where?' WHERE '.implode(' AND ',$where):'').' LIMIT 300';$arbol=rows($pdo,$sql,$params);
-$tiposFiltro=rows($pdo,'SELECT DISTINCT tipo_unidad FROM vw_moi_arbol_unidades WHERE tipo_unidad IS NOT NULL ORDER BY tipo_unidad');$alcancesFiltro=rows($pdo,'SELECT DISTINCT territorial_scope FROM vw_moi_arbol_unidades WHERE territorial_scope IS NOT NULL ORDER BY territorial_scope');
+$hasWorkforce = workforce_is_available($pdo);
+$source = $hasWorkforce ? current_workforce_source($pdo, (int)($_GET['source_id'] ?? 0)) : [];
+$sourceId = (int)($source['id'] ?? 0);
+
+$summary = $sourceId > 0
+    ? one($pdo, 'SELECT * FROM vw_workforce_summary WHERE source_id = :source_id', ['source_id' => $sourceId])
+    : [];
+
+$validation = $sourceId > 0
+    ? one(
+        $pdo,
+        "SELECT
+            SUM(m.review_status = 'aprobado') AS aprobados,
+            SUM(COALESCE(m.review_status, '') <> 'aprobado') AS pendientes,
+            SUM(m.territorial_zone_unit_id IS NOT NULL) AS con_zona,
+            SUM(NULLIF(TRIM(COALESCE(m.internal_detail, '')), '') IS NOT NULL) AS con_detalle
+         FROM workforce_personnel_staging p
+         LEFT JOIN workforce_unit_matches m ON m.personnel_staging_id = p.id
+         WHERE p.source_id = :source_id
+           AND p.import_status = 'importado'",
+        ['source_id' => $sourceId]
+    )
+    : [];
+
+$catalogCounts = one(
+    $pdo,
+    "SELECT
+        SUM(status = 'active' AND lifecycle_status = 'vigente' AND code LIKE 'DN-%') AS direcciones,
+        SUM(status = 'active' AND lifecycle_status = 'vigente' AND code LIKE 'ZP-%') AS zonas,
+        SUM(status = 'active' AND lifecycle_status = 'vigente' AND code LIKE 'SP-%') AS servicios,
+        SUM(status = 'active' AND lifecycle_status = 'vigente') AS unidades_vigentes
+     FROM organizational_units"
+);
+
+$topUnits = $sourceId > 0
+    ? rows(
+        $pdo,
+        "SELECT
+            d.matched_unit_id,
+            COALESCE(d.matched_unit_name, 'Sin unidad funcional') AS unidad,
+            COUNT(*) AS total
+         FROM vw_workforce_match_detail d
+         WHERE d.source_id = :source_id
+         GROUP BY d.matched_unit_id, d.matched_unit_name
+         ORDER BY total DESC, unidad
+         LIMIT 8",
+        ['source_id' => $sourceId]
+    )
+    : [];
+
+$topZones = $sourceId > 0
+    ? rows(
+        $pdo,
+        "SELECT
+            d.territorial_zone_unit_id,
+            COALESCE(d.territorial_zone_name, 'Sin referencia territorial') AS zona,
+            COUNT(*) AS total
+         FROM vw_workforce_match_detail d
+         WHERE d.source_id = :source_id
+         GROUP BY d.territorial_zone_unit_id, d.territorial_zone_name
+         ORDER BY total DESC, zona
+         LIMIT 8",
+        ['source_id' => $sourceId]
+    )
+    : [];
+
+$totalPeople = (int)($summary['total_personas'] ?? 0);
+$maxUnit = max(array_map(static fn (array $row): int => (int)$row['total'], $topUnits) ?: [1]);
+$maxZone = max(array_map(static fn (array $row): int => (int)$row['total'], $topZones) ?: [1]);
+
+render_header(
+    'Panel general',
+    'inicio',
+    'Resumen sencillo para consultar el personal y su ubicación institucional.'
+);
 ?>
-<!doctype html><html lang="es"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Dashboard MOI 65.16</title><style>
-body{font-family:Arial,sans-serif;margin:0;background:#f4f6f8;color:#1f2937}header{background:#111827;color:white;padding:18px 28px}header h1{margin:0;font-size:22px}header p{margin:6px 0 0;color:#d1d5db}header a{color:#d1d5db;font-weight:bold;margin-right:14px}main{padding:24px}.grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(180px,1fr));gap:14px;margin-bottom:20px}.card,section{background:white;border-radius:10px;padding:16px;box-shadow:0 1px 4px #0002}.card .label{font-size:12px;color:#6b7280;text-transform:uppercase;letter-spacing:.04em}.card .value{font-size:26px;font-weight:bold;margin-top:6px}section{margin-bottom:20px}h2{font-size:18px;margin:0 0 12px}.two{display:grid;grid-template-columns:repeat(auto-fit,minmax(320px,1fr));gap:20px}.filters{display:flex;flex-wrap:wrap;gap:10px;margin-bottom:12px}input,select,button{padding:8px;border:1px solid #d1d5db;border-radius:6px}button{background:#111827;color:white}.badge{display:inline-block;padding:3px 7px;border-radius:999px;background:#eef2ff;font-size:12px}table{width:100%;border-collapse:collapse;font-size:13px}th,td{border-bottom:1px solid #e5e7eb;text-align:left;padding:8px;vertical-align:top}th{background:#f9fafb}.module a{display:inline-block;background:#047857;color:white;text-decoration:none;border-radius:8px;padding:10px 12px;margin:4px}.module a.workforce{background:#1d4ed8}.muted{color:#6b7280;font-size:12px}.partial{color:#a16207}.bad{color:#b91c1c}
-</style></head><body><header><h1>Dashboard MOI 65.16</h1><p>Estructura vigente, trazabilidad legacy y cambios posteriores.<br><a href="index.php">Dashboard</a><a href="trabajo_zonas.php">Trabajo por zona</a><a href="revision.php">Revision / aprobaciones</a><a href="asignar_zonas.php">Zonas</a><a href="asignar_direcciones.php">Direcciones</a><a href="asignar_areas.php">Areas</a><a href="asignar_areas_catalogo.php">Areas catalogo</a><a href="reasignar_areas_catalogo.php">Corregir areas</a><a href="catalogo_sectores.php">Sectores</a><a href="asignar_unidades_direccion.php">Unidades por direccion</a><a href="dinsec_personal.php">DINSEC personal</a><a href="pie_fuerza.php">PIE DE FUERZA</a></p></header><main>
-<div class="grid"><div class="card"><div class="label">Unidades vigentes</div><div class="value"><?=e($resumen['total_unidades']??0)?></div></div><div class="card"><div class="label">Nacionales</div><div class="value"><?=e($resumen['unidades_nacionales']??0)?></div></div><div class="card"><div class="label">Regionales</div><div class="value"><?=e($resumen['unidades_regionales']??0)?></div></div><div class="card"><div class="label">Zonales</div><div class="value"><?=e($resumen['unidades_zonales']??0)?></div></div><div class="card"><div class="label">Sedes</div><div class="value"><?=e($resumen['sedes_detectadas']??0)?></div></div><div class="card"><div class="label">No vigentes</div><div class="value"><?=e($resumen['unidades_no_vigentes']??0)?></div></div><div class="card"><div class="label">Pendientes estructura</div><div class="value"><?=e($resumen['pendientes_revision']??0)?></div></div><div class="card"><div class="label">Zonas cabecera</div><div class="value"><?=e($zonasCabeceraTotal)?></div></div><div class="card"><div class="label">Direcciones cabecera</div><div class="value"><?=e($direccionesCabeceraTotal)?></div></div><?php if($hasWorkforce):?><div class="card"><div class="label">PIE DE FUERZA total</div><div class="value"><?=e($workforceSummary['total_personas']??0)?></div></div><div class="card"><div class="label">PIE asignación parcial</div><div class="value partial"><?=e($workforceSummary['asignados_parciales']??0)?></div></div><div class="card"><div class="label">PIE pendientes</div><div class="value bad"><?=e($workforceSummary['pendientes_revision']??0)?></div></div><?php endif;?></div>
-<section class="module"><h2>Modulos de trabajo</h2><p class="muted">Accesos directos para normalizar la estructura y asignar personal sin mezclar ambos procesos.</p><a href="trabajo_zonas.php">Trabajo por zona</a><a href="asignar_zonas.php">Asignar zonas</a><a href="asignar_direcciones.php">Asignar direcciones</a><a href="asignar_areas.php">Asignar areas / respaldo</a><a href="asignar_areas_catalogo.php">Asignar areas con catalogo</a><a href="reasignar_areas_catalogo.php">Corregir areas ya asignadas</a><a href="catalogo_sectores.php">Catalogo de sectores</a><a href="asignar_unidades_direccion.php">Unidades internas por direccion</a><a href="dinsec_personal.php">Referencia personal DINSEC</a><a class="workforce" href="pie_fuerza.php">PIE DE FUERZA 26-6-2026</a><a href="revision.php">Revision y aprobaciones</a></section>
-<div class="two"><section><h2>Unidades vigentes por tipo</h2><table><thead><tr><th>Tipo</th><th>Total</th></tr></thead><tbody><?php foreach($porTipo as $r):?><tr><td><?=e($r['tipo_unidad'])?></td><td><?=e($r['total'])?></td></tr><?php endforeach;?></tbody></table></section><section><h2>Unidades vigentes por alcance</h2><table><thead><tr><th>Alcance</th><th>Total</th></tr></thead><tbody><?php foreach($porAlcance as $r):?><tr><td><?=e($r['alcance'])?></td><td><?=e($r['total'])?></td></tr><?php endforeach;?></tbody></table></section></div>
-<section><h2>Arbol / listado de unidades vigentes</h2><p class="muted">El legacy se conserva como origen historico. Este listado muestra la estructura vigente.</p><form class="filters" method="get"><input type="text" name="buscar" placeholder="Buscar unidad o codigo" value="<?=e($buscar)?>"><select name="tipo"><option value="">Todos los tipos</option><?php foreach($tiposFiltro as $r):?><option value="<?=e($r['tipo_unidad'])?>" <?=$tipo===$r['tipo_unidad']?'selected':''?>><?=e($r['tipo_unidad'])?></option><?php endforeach;?></select><select name="alcance"><option value="">Todos los alcances</option><?php foreach($alcancesFiltro as $r):?><option value="<?=e($r['territorial_scope'])?>" <?=$alcance===$r['territorial_scope']?'selected':''?>><?=e($r['territorial_scope'])?></option><?php endforeach;?></select><button>Filtrar</button></form><table><thead><tr><th>Unidad</th><th>Superior</th><th>Tipo</th><th>Alcance</th><th>Mando</th><th>Vigencia</th><th>Codigo</th><th>Origen</th></tr></thead><tbody><?php foreach($arbol as $r):?><tr><td><strong><?=e($r['name'])?></strong></td><td><?=e($r['unidad_superior'])?></td><td><span class="badge"><?=e($r['tipo_unidad'])?></span></td><td><?=e($r['territorial_scope'])?></td><td><?=e($r['command_structure'])?> / <?=e($r['command_relationship'])?></td><td><?=e($r['valid_from'])?> - <?=e($r['valid_to']?:'vigente')?></td><td><?=e($r['code'])?></td><td><?=e($r['legacy_table'])?>: <?=e($r['legacy_id'])?></td></tr><?php endforeach;?></tbody></table></section></main></body></html>
+
+<?php if (!$hasWorkforce): ?>
+    <?php render_empty_state(
+        'El módulo de pie de fuerza todavía no está instalado',
+        'Ejecute el archivo database/pie_fuerza_20260626.sql en la base de datos local.',
+        '../database/pie_fuerza_20260626.sql',
+        'Ver referencia del módulo'
+    ); ?>
+<?php elseif (!$source): ?>
+    <?php render_empty_state(
+        'No hay una fuente de personal cargada',
+        'Cuando se importe un listado de pie de fuerza, esta pantalla mostrará el resumen y los accesos de consulta.'
+    ); ?>
+<?php else: ?>
+    <section class="search-hero card">
+        <h2>¿A quién o qué dependencia desea consultar?</h2>
+        <p>Escriba un nombre, apellido, número de posición, rango, dirección, zona o dependencia.</p>
+        <form class="search-bar" action="pie_fuerza.php" method="get">
+            <input type="hidden" name="source_id" value="<?= h($sourceId) ?>">
+            <input
+                type="search"
+                name="buscar"
+                placeholder="Ejemplo: Juan Pérez, 17830, Telemática o Chiriquí"
+                autocomplete="off"
+                aria-label="Buscar personal o dependencia"
+            >
+            <button class="button primary" type="submit">Buscar</button>
+        </form>
+    </section>
+
+    <div class="kpi-grid">
+        <article class="kpi-card card">
+            <span class="kpi-label">Personal registrado</span>
+            <strong class="kpi-value"><?= h(format_number($totalPeople)) ?></strong>
+            <span class="kpi-note">Funcionarios incluidos en la fuente seleccionada.</span>
+        </article>
+        <article class="kpi-card card success">
+            <span class="kpi-label">Ubicación completa</span>
+            <strong class="kpi-value"><?= h(format_number($summary['asignados_completos'] ?? 0)) ?></strong>
+            <span class="kpi-note">Unidad y nivel organizacional identificados.</span>
+        </article>
+        <article class="kpi-card card info">
+            <span class="kpi-label">Unidad confirmada</span>
+            <strong class="kpi-value"><?= h(format_number($summary['asignados_parciales'] ?? 0)) ?></strong>
+            <span class="kpi-note">La dirección o unidad principal está validada y conserva su detalle interno.</span>
+        </article>
+        <article class="kpi-card card <?= (int)($validation['pendientes'] ?? 0) > 0 ? 'warning' : 'success' ?>">
+            <span class="kpi-label">Pendientes de validar</span>
+            <strong class="kpi-value"><?= h(format_number($validation['pendientes'] ?? 0)) ?></strong>
+            <span class="kpi-note"><?= (int)($validation['pendientes'] ?? 0) === 0 ? 'Todo el listado está validado.' : 'Registros que necesitan revisión.' ?></span>
+        </article>
+    </div>
+
+    <section class="panel">
+        <div class="panel-header">
+            <div>
+                <h2>¿Qué desea revisar?</h2>
+                <p>Entre por el tipo de consulta. No necesita conocer términos técnicos.</p>
+            </div>
+        </div>
+        <div class="action-grid">
+            <a class="action-card card" href="pie_fuerza.php?source_id=<?= h($sourceId) ?>">
+                <span class="action-icon">P</span>
+                <h3>Buscar personal</h3>
+                <p>Consulte funcionarios por nombre, posición, rango o lugar de trabajo.</p>
+                <span class="action-link">Abrir listado →</span>
+            </a>
+            <a class="action-card card" href="unidades.php?grupo=direcciones&source_id=<?= h($sourceId) ?>">
+                <span class="action-icon">D</span>
+                <h3>Direcciones nacionales</h3>
+                <p>Vea el personal asignado a cada dirección y sus dependencias internas.</p>
+                <span class="action-link"><?= h(format_number($catalogCounts['direcciones'] ?? 0)) ?> direcciones →</span>
+            </a>
+            <a class="action-card card" href="unidades.php?grupo=zonas&source_id=<?= h($sourceId) ?>">
+                <span class="action-icon">Z</span>
+                <h3>Zonas policiales</h3>
+                <p>Revise la distribución territorial por zona, área y unidad.</p>
+                <span class="action-link"><?= h(format_number($catalogCounts['zonas'] ?? 0)) ?> zonas →</span>
+            </a>
+            <a class="action-card card" href="unidades.php?grupo=servicios&source_id=<?= h($sourceId) ?>">
+                <span class="action-icon">S</span>
+                <h3>Servicios policiales</h3>
+                <p>Consulte los servicios especializados y su cantidad de personal.</p>
+                <span class="action-link"><?= h(format_number($catalogCounts['servicios'] ?? 0)) ?> servicios →</span>
+            </a>
+            <a class="action-card card" href="unidades.php?grupo=todas&source_id=<?= h($sourceId) ?>">
+                <span class="action-icon">E</span>
+                <h3>Estructura institucional</h3>
+                <p>Navegue la estructura vigente sin mezclarla con los nombres históricos.</p>
+                <span class="action-link"><?= h(format_number($catalogCounts['unidades_vigentes'] ?? 0)) ?> unidades vigentes →</span>
+            </a>
+            <a class="action-card card" href="reportes.php?source_id=<?= h($sourceId) ?>">
+                <span class="action-icon">R</span>
+                <h3>Reportes</h3>
+                <p>Descargue listados y abra consultas preparadas para supervisión.</p>
+                <span class="action-link">Ver reportes →</span>
+            </a>
+        </div>
+    </section>
+
+    <div class="two-column">
+        <section class="panel">
+            <div class="panel-header">
+                <div>
+                    <h2>Unidades con más personal</h2>
+                    <p>El conteo corresponde a la unidad funcional principal.</p>
+                </div>
+                <a class="button soft" href="unidades.php?grupo=todas&source_id=<?= h($sourceId) ?>">Ver todas</a>
+            </div>
+            <div class="bar-list">
+                <?php foreach ($topUnits as $item): ?>
+                    <div class="bar-row">
+                        <a class="bar-label" href="<?= h(query_url('pie_fuerza.php', ['source_id' => $sourceId, 'unit_id' => $item['matched_unit_id']])) ?>" title="<?= h($item['unidad']) ?>">
+                            <?= h($item['unidad']) ?>
+                        </a>
+                        <div class="bar-track" aria-hidden="true">
+                            <div class="bar-fill" style="width: <?= h((string)max(1, round(((int)$item['total'] / $maxUnit) * 100, 1))) ?>%"></div>
+                        </div>
+                        <span class="bar-value"><?= h(format_number($item['total'])) ?></span>
+                    </div>
+                <?php endforeach; ?>
+            </div>
+        </section>
+
+        <section class="panel">
+            <div class="panel-header">
+                <div>
+                    <h2>Referencias territoriales principales</h2>
+                    <p>Muestra dónde presta servicio el personal cuando existe una zona asociada.</p>
+                </div>
+            </div>
+            <div class="bar-list">
+                <?php foreach ($topZones as $item): ?>
+                    <div class="bar-row">
+                        <a class="bar-label" href="<?= h(query_url('pie_fuerza.php', ['source_id' => $sourceId, 'zone_id' => $item['territorial_zone_unit_id']])) ?>" title="<?= h($item['zona']) ?>">
+                            <?= h($item['zona']) ?>
+                        </a>
+                        <div class="bar-track" aria-hidden="true">
+                            <div class="bar-fill" style="width: <?= h((string)max(1, round(((int)$item['total'] / $maxZone) * 100, 1))) ?>%"></div>
+                        </div>
+                        <span class="bar-value"><?= h(format_number($item['total'])) ?></span>
+                    </div>
+                <?php endforeach; ?>
+            </div>
+        </section>
+    </div>
+
+    <section class="notice info">
+        <strong>Fuente consultada:</strong>
+        <?= h($source['document_name']) ?>
+        <?php if (!empty($source['document_date'])): ?> — <?= h($source['document_date']) ?><?php endif; ?>.
+        El archivo original se mantiene privado; este panel muestra únicamente la información procesada en la base local.
+    </section>
+<?php endif; ?>
+
+<?php render_footer(); ?>
