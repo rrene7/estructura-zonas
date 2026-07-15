@@ -45,6 +45,18 @@ $where = [
     "u.status = 'active'",
     "u.lifecycle_status = 'vigente'",
     $groupInfo['condition'],
+    "NOT (
+        UPPER(TRIM(COALESCE(u.legacy_table, ''))) = 'TABCUAR'
+        AND EXISTS (
+            SELECT 1
+            FROM organizational_units canonical
+            WHERE canonical.id <> u.id
+              AND canonical.status = 'active'
+              AND canonical.lifecycle_status = 'vigente'
+              AND canonical.legacy_table IN ('MOI_CABECERA_DIRECCION', 'MOI_CABECERA_ZONA')
+              AND UPPER(TRIM(canonical.name)) = UPPER(TRIM(u.name))
+        )
+    )",
 ];
 $params = [
     'source_direct' => $sourceId,
