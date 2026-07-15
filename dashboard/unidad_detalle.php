@@ -31,6 +31,41 @@ if (!$unit) {
     exit;
 }
 
+$legacyTable = strtoupper(trim((string)($unit['legacy_table'] ?? '')));
+if ($legacyTable === 'TABCUAR') {
+    $canonicalUnit = one(
+        $pdo,
+        "SELECT canonical.id
+         FROM organizational_units canonical
+         WHERE canonical.id <> :current_id
+           AND canonical.status = 'active'
+           AND canonical.lifecycle_status = 'vigente'
+           AND canonical.legacy_table IN ('MOI_CABECERA_DIRECCION', 'MOI_CABECERA_ZONA')
+           AND UPPER(TRIM(canonical.name)) = UPPER(TRIM(:unit_name))
+         ORDER BY
+           CASE
+             WHEN canonical.legacy_table = 'MOI_CABECERA_DIRECCION' THEN 1
+             WHEN canonical.legacy_table = 'MOI_CABECERA_ZONA' THEN 2
+             ELSE 9
+           END,
+           canonical.id
+         LIMIT 1",
+        [
+            'current_id' => $unitId,
+            'unit_name' => (string)$unit['name'],
+        ]
+    );
+
+    if (!empty($canonicalUnit['id'])) {
+        header(
+            'Location: unidad_detalle.php?id=' . (int)$canonicalUnit['id']
+            . '&source_id=' . $sourceId
+            . '&redirigido=1'
+        );
+        exit;
+    }
+}
+
 $code = (string)($unit['code'] ?? '');
 if (str_starts_with($code, 'DN-') || $code === 'SG-1') {
     $group = 'direcciones';
@@ -80,6 +115,21 @@ $territorialSummary = $sourceId > 0
     )
     : [];
 
+$leader = [];
+if ($sourceId > 0 && $code === 'DN-01') {
+    $leader = one(
+        $pdo,
+        "SELECT d.*
+         FROM vw_workforce_match_detail d
+         WHERE d.source_id = :source_id
+           AND d.matched_unit_id = :unit_id
+           AND UPPER(TRIM(COALESCE(d.rank_text, ''))) IN ('DIRECT', 'DIRECTOR', 'DIRECTOR GENERAL')
+         ORDER BY CAST(d.position_number AS UNSIGNED), d.row_number
+         LIMIT 1",
+        ['source_id' => $sourceId, 'unit_id' => $unitId]
+    );
+}
+
 $children = rows(
     $pdo,
     "SELECT
@@ -110,7 +160,13 @@ $people = $sourceId > 0
          FROM vw_workforce_match_detail d
          WHERE d.source_id = :source_id
            AND d.matched_unit_id = :unit_id
-         ORDER BY d.full_name, d.position_number
+         ORDER BY
+           CASE
+             WHEN UPPER(TRIM(COALESCE(d.rank_text, ''))) IN ('DIRECT', 'DIRECTOR', 'DIRECTOR GENERAL') THEN 0
+             ELSE 1
+           END,
+           d.full_name,
+           d.position_number
          LIMIT 60",
         ['source_id' => $sourceId, 'unit_id' => $unitId]
     )
@@ -137,6 +193,12 @@ render_breadcrumbs([
 ]);
 ?>
 
+<?php if (($_GET['redirigido'] ?? '') === '1'): ?>
+    <div class="notice info">
+        Se abrió automáticamente la unidad institucional vigente para evitar mostrar una referencia histórica duplicada.
+    </div>
+<?php endif; ?>
+
 <div class="page-intro">
     <div>
         <h2><?= h($unit['name']) ?></h2>
@@ -150,6 +212,19 @@ render_breadcrumbs([
         <a class="button primary" href="pie_fuerza.php?source_id=<?= h($sourceId) ?>&unit_id=<?= h($unitId) ?>">Ver todo el personal</a>
     </div>
 </div>
+
+<?php if ($leader): ?>
+    <section class="panel">
+        <div class="panel-header">
+            <div>
+                <span class="kpi-label">Director General</span>
+                <h2><?= h($leader['full_name']) ?></h2>
+                <p><?= h($leader['rank_text']) ?> · Posición <?= h($leader['position_number']) ?></p>
+            </div>
+            <a class="button primary" href="persona_detalle.php?id=<?= h($leader['personnel_staging_id']) ?>">Ver ficha del director</a>
+        </div>
+    </section>
+<?php endif; ?>
 
 <div class="kpi-grid">
     <article class="kpi-card card">
