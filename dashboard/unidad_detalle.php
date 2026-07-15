@@ -204,6 +204,7 @@ $children = rows(
 $officeText = "UPPER(CONCAT_WS(' ', COALESCE(d.internal_detail, ''), COALESCE(d.location_original, '')))";
 $officeExpression = "
 CASE
+    WHEN {$officeText} REGEXP 'PMI' THEN 'Departamento de Protección y Seguridad'
     WHEN {$officeText} REGEXP 'AUDITORIA' THEN 'Auditoría Interna'
     WHEN {$officeText} REGEXP 'SEGURIDAD[[:space:]]+DE[[:space:]]+INSTAL|SEG[.]?[[:space:]]*INSTAL' THEN 'Seguridad de Instalaciones'
     WHEN {$officeText} REGEXP 'PROTECCION.*SEGUR|PROT[.]?[[:space:]]*SEGUR|DPTO[.]?[[:space:]]*PROT' THEN 'Departamento de Protección y Seguridad'
@@ -212,15 +213,7 @@ CASE
     WHEN {$officeText} REGEXP 'CAPELL' THEN 'Capellanía'
     WHEN {$officeText} REGEXP 'ANALISIS.*ESTRATEG' THEN 'Centro de Análisis Estratégico'
     WHEN {$officeText} REGEXP 'TRAMITE.*TRANSFER' THEN 'Trámite de Transferencia'
-    WHEN {$officeText} REGEXP 'CENTRO DE OPERACIONES REGIONAL|C[ .]*O[ .]*R' THEN CONCAT(
-        'COR - ',
-        COALESCE(
-            NULLIF(TRIM(SUBSTRING_INDEX(NULLIF(d.internal_detail, ''), ' / ', -1)), ''),
-            NULLIF(TRIM(d.territorial_zone_name), ''),
-            NULLIF(TRIM(d.location_original), ''),
-            'Sin ubicación específica'
-        )
-    )
+    WHEN {$officeText} REGEXP 'CENTRO DE OPERACIONES REGIONAL|C[ .]*O[ .]*R' THEN 'Centros de Operaciones Regionales (COR)'
     WHEN {$officeText} REGEXP 'COMISION INTERINSTITUCIONAL|MINSEG|MIGRACION|SENAFRONT|AERONAVAL|SERVICIO DE PROTECCION INSTITUCIONAL' THEN 'Comisiones interinstitucionales'
     WHEN {$officeText} REGEXP 'SECRETARIA GENERAL|SEC[.]?[[:space:]]*GENERAL' THEN 'Secretaría General'
     WHEN {$officeText} REGEXP 'OFICINA.*PROTOCOLO|DIR[.]?[[:space:]]*GRAL.*PROTOCOLO' THEN 'Oficina de Protocolo'
@@ -257,7 +250,7 @@ if ($isDirectionGeneral && $sourceId > 0) {
                  WHEN office_group = 'Capellanía' THEN 8
                  WHEN office_group = 'Centro de Análisis Estratégico' THEN 9
                  WHEN office_group = 'Trámite de Transferencia' THEN 10
-                 WHEN office_group LIKE 'COR - %' THEN 11
+                 WHEN office_group = 'Centros de Operaciones Regionales (COR)' THEN 11
                  WHEN office_group = 'Comisiones interinstitucionales' THEN 12
                  ELSE 99
              END,
@@ -427,7 +420,7 @@ render_breadcrumbs([
         <div class="panel-header">
             <div>
                 <h2>Oficinas, departamentos y grupos de trabajo</h2>
-                <p>La Dirección General se presenta por áreas de trabajo. Seleccione una tarjeta para ver solamente su personal.</p>
+                <p>Seleccione una línea para consultar su personal. Los COR se abren en una pantalla aparte con sus sedes.</p>
             </div>
             <?php if ($officeFilter !== ''): ?>
                 <a class="button" href="<?= h(query_url('unidad_detalle.php', [
@@ -436,22 +429,33 @@ render_breadcrumbs([
                 ])) ?>#personal">Mostrar todas</a>
             <?php endif; ?>
         </div>
-        <div class="action-grid">
+        <div class="unit-list">
             <?php foreach ($officeGroups as $office): ?>
                 <?php
                 $officeName = (string)$office['office_group'];
-                $officeUrl = query_url('unidad_detalle.php', [
-                    'id' => $unitId,
-                    'source_id' => $sourceId,
-                    'oficina' => $officeName,
-                ]) . '#personal';
+                $isCorGroup = $officeName === 'Centros de Operaciones Regionales (COR)';
+                $officeUrl = $isCorGroup
+                    ? query_url('cor_detalle.php', [
+                        'unit_id' => $unitId,
+                        'source_id' => $sourceId,
+                    ])
+                    : query_url('unidad_detalle.php', [
+                        'id' => $unitId,
+                        'source_id' => $sourceId,
+                        'oficina' => $officeName,
+                    ]) . '#personal';
                 ?>
-                <a class="action-card card" href="<?= h($officeUrl) ?>">
-                    <span class="action-icon"><?= h(format_number($office['total'])) ?></span>
-                    <h3><?= h($officeName) ?></h3>
-                    <p><?= h(format_number($office['total'])) ?> funcionarios registrados en este grupo.</p>
-                    <span class="action-link"><?= $officeFilter === $officeName ? 'Mostrando ahora' : 'Ver personal →' ?></span>
-                </a>
+                <article class="unit-card card">
+                    <div>
+                        <h3><a href="<?= h($officeUrl) ?>"><?= h($officeName) ?></a></h3>
+                        <p><?= $isCorGroup ? 'Abra para consultar cada COR por separado.' : 'Personal clasificado dentro de esta oficina o grupo.' ?></p>
+                    </div>
+                    <div class="unit-count">
+                        <strong><?= h(format_number($office['total'])) ?></strong>
+                        <span>funcionarios</span>
+                        <a class="button soft" href="<?= h($officeUrl) ?>">Abrir</a>
+                    </div>
+                </article>
             <?php endforeach; ?>
         </div>
     </section>
@@ -462,7 +466,7 @@ render_breadcrumbs([
         <section class="panel">
             <details class="advanced">
                 <summary>Ver unidades institucionales vinculadas según la estructura</summary>
-                <p class="subtext">Aquí se muestran unidades formalmente relacionadas, separadas de las oficinas internas obtenidas del listado de personal.</p>
+                <p class="subtext">Estas unidades formales se muestran separadas de las oficinas internas obtenidas del listado de personal.</p>
                 <div class="unit-list">
                     <?php foreach ($children as $child): ?>
                         <article class="unit-card card">
@@ -522,7 +526,7 @@ render_breadcrumbs([
             <p>
                 Mostrando <?= h(format_number($firstShown)) ?>–<?= h(format_number($lastShown)) ?>
                 de <?= h(format_number($totalPeopleFiltered)) ?> funcionarios.
-                <?= $officeFilter !== '' ? 'El listado está filtrado por la oficina seleccionada.' : 'Use las tarjetas superiores para consultar un grupo específico.' ?>
+                <?= $officeFilter !== '' ? 'El listado está filtrado por la oficina seleccionada.' : 'Use la lista superior para consultar un grupo específico.' ?>
             </p>
         </div>
         <?php if ($officeFilter !== ''): ?>
