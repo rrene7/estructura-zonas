@@ -8,3 +8,6 @@ data/private/
 *.xls
 *.mdb
 *.accdb
+
+# Configuración local del dashboard
+/dashboard/config.php
