@@ -35,6 +35,21 @@ CASE
         THEN 'CICLISTA'
     WHEN {$dependencyText} REGEXP '^GUARNIC|^GUARNICION$'
         THEN 'Guarnición'
+    WHEN {$dependencyText} REGEXP '^P[ .-]*[0-9]+$'
+        THEN CONCAT(
+            'P-',
+            REPLACE(REPLACE(REPLACE(REPLACE({$dependencyText}, 'P', ''), ' ', ''), '.', ''), '-', '')
+        )
+    WHEN {$dependencyText} IN ('L TABLAS', 'LAS TABLAS')
+        THEN 'LAS TABLAS'
+    WHEN {$dependencyText} REGEXP '^COMUNIC|^COMUNICACION'
+        THEN 'COMUNICACIONES'
+    WHEN {$dependencyText} IN ('ARMERIA', 'ARMERÍA')
+        THEN 'ARMERÍA'
+    WHEN {$dependencyText} REGEXP '^ATEN[ .]*CIU|^ATENCION[[:space:]]+CIUDADANA$'
+        THEN 'ATENCIÓN CIUDADANA'
+    WHEN {$dependencyText} REGEXP '^TELEMAT|^TELEMATICA$'
+        THEN 'TELEMÁTICA'
     WHEN {$dependencyText} REGEXP '^(G[ .]*POL[ .]*[A-Z]|GRUPO[[:space:]]+POLICIAL[[:space:]]+[A-Z]|GRUPO[[:space:]]+[A-Z])$'
         THEN CONCAT(
             'GRUPO POLICIAL ',
