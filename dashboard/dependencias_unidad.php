@@ -28,10 +28,28 @@ if (!$unit || (string)($unit['code'] ?? '') === 'DN-01') {
     exit;
 }
 
+$dependencyText = "UPPER(TRIM(COALESCE(d.internal_detail, '')))";
+$dependencyExpression = "
+CASE
+    WHEN {$dependencyText} IN ('CICLISTA', 'GRU CICLISTA', 'GRUPO CICLISTA')
+        THEN 'CICLISTA'
+    WHEN {$dependencyText} REGEXP '^GUARNIC|^GUARNICION$'
+        THEN 'Guarnición'
+    WHEN {$dependencyText} REGEXP '^(G[ .]*POL[ .]*A|GRUPO[[:space:]]+POLICIAL[[:space:]]+A|GRUPO[[:space:]]+A)$'
+        THEN 'GRUPO POLICIAL A'
+    WHEN {$dependencyText} REGEXP '^(G[ .]*POL[ .]*B|GRUPO[[:space:]]+POLICIAL[[:space:]]+B|GRUPO[[:space:]]+B)$'
+        THEN 'GRUPO POLICIAL B'
+    WHEN {$dependencyText} REGEXP '^(S[ .]*ESPEC|SERVICIO[[:space:]]+ESPECIAL)$'
+        THEN 'SERVICIO ESPECIAL'
+    WHEN NULLIF(TRIM(COALESCE(d.internal_detail, '')), '') IS NULL
+        THEN 'Sin detalle interno'
+    ELSE TRIM(d.internal_detail)
+END";
+
 $dependencies = rows(
     $pdo,
     "SELECT
-        COALESCE(NULLIF(TRIM(d.internal_detail), ''), 'Sin detalle interno') AS dependency_name,
+        {$dependencyExpression} AS dependency_name,
         COUNT(*) AS total
      FROM vw_workforce_match_detail d
      WHERE d.source_id = :source_id
@@ -65,7 +83,7 @@ if (!$dependencies) {
             <tr>
                 <th>Dependencia o sección</th>
                 <th>Personal</th>
-                <th></th>
+                <th>Acción</th>
             </tr>
             </thead>
             <tbody>
