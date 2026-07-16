@@ -20,7 +20,7 @@ function render_header(string $title, string $active = 'inicio', string $subtitl
         <meta name="viewport" content="width=device-width, initial-scale=1">
         <meta name="color-scheme" content="light">
         <title><?= h($title) ?> | Pie de Fuerza</title>
-        <link rel="stylesheet" href="assets/css/dashboard.css">
+        <link rel="stylesheet" href="assets/css/dashboard.css?v=20260716-2">
     </head>
     <body>
     <div class="app-shell">
@@ -83,7 +83,7 @@ function render_footer(): void
             </footer>
         </div>
     </div>
-    <script src="assets/js/dashboard.js"></script>
+    <script src="assets/js/dashboard.js?v=20260716-4"></script>
     </body>
     </html>
     <?php
