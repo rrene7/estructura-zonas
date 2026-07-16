@@ -35,12 +35,17 @@ CASE
         THEN 'CICLISTA'
     WHEN {$dependencyText} REGEXP '^GUARNIC|^GUARNICION$'
         THEN 'Guarnición'
-    WHEN {$dependencyText} REGEXP '^(G[ .]*POL[ .]*A|GRUPO[[:space:]]+POLICIAL[[:space:]]+A|GRUPO[[:space:]]+A)$'
-        THEN 'GRUPO POLICIAL A'
-    WHEN {$dependencyText} REGEXP '^(G[ .]*POL[ .]*B|GRUPO[[:space:]]+POLICIAL[[:space:]]+B|GRUPO[[:space:]]+B)$'
-        THEN 'GRUPO POLICIAL B'
+    WHEN {$dependencyText} REGEXP '^(G[ .]*POL[ .]*[A-Z]|GRUPO[[:space:]]+POLICIAL[[:space:]]+[A-Z]|GRUPO[[:space:]]+[A-Z])$'
+        THEN CONCAT(
+            'GRUPO POLICIAL ',
+            RIGHT(REPLACE(REPLACE({$dependencyText}, ' ', ''), '.', ''), 1)
+        )
     WHEN {$dependencyText} REGEXP '^(S[ .]*ESPEC|SERVICIO[[:space:]]+ESPECIAL)$'
         THEN 'SERVICIO ESPECIAL'
+    WHEN {$dependencyText} REGEXP '^(B[ .]*DE[ .]*MUSIC|BANDA[[:space:]]+DE[[:space:]]+MUSICA)$'
+        THEN 'BANDA DE MÚSICA'
+    WHEN {$dependencyText} REGEXP '^(S[ .]*CARLO|SAN[[:space:]]+CARLOS)$'
+        THEN 'SAN CARLOS'
     WHEN NULLIF(TRIM(COALESCE(d.internal_detail, '')), '') IS NULL
         THEN 'Sin detalle interno'
     ELSE TRIM(d.internal_detail)
@@ -65,7 +70,12 @@ $dependencies = rows(
     ]
 );
 
-if (!$dependencies) {
+$meaningfulDependencies = array_values(array_filter(
+    $dependencies,
+    static fn (array $dependency): bool => (string)($dependency['dependency_name'] ?? '') !== 'Sin detalle interno'
+));
+
+if (count($meaningfulDependencies) < 2) {
     exit;
 }
 ?>
