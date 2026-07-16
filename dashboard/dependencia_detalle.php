@@ -41,7 +41,23 @@ if (!$unit || $sourceId <= 0 || $dependencyName === '') {
     exit;
 }
 
-$dependencyExpression = "COALESCE(NULLIF(TRIM(d.internal_detail), ''), 'Sin detalle interno')";
+$dependencyText = "UPPER(TRIM(COALESCE(d.internal_detail, '')))";
+$dependencyExpression = "
+CASE
+    WHEN {$dependencyText} IN ('CICLISTA', 'GRU CICLISTA', 'GRUPO CICLISTA')
+        THEN 'CICLISTA'
+    WHEN {$dependencyText} REGEXP '^GUARNIC|^GUARNICION$'
+        THEN 'Guarnición'
+    WHEN {$dependencyText} REGEXP '^(G[ .]*POL[ .]*A|GRUPO[[:space:]]+POLICIAL[[:space:]]+A|GRUPO[[:space:]]+A)$'
+        THEN 'GRUPO POLICIAL A'
+    WHEN {$dependencyText} REGEXP '^(G[ .]*POL[ .]*B|GRUPO[[:space:]]+POLICIAL[[:space:]]+B|GRUPO[[:space:]]+B)$'
+        THEN 'GRUPO POLICIAL B'
+    WHEN {$dependencyText} REGEXP '^(S[ .]*ESPEC|SERVICIO[[:space:]]+ESPECIAL)$'
+        THEN 'SERVICIO ESPECIAL'
+    WHEN NULLIF(TRIM(COALESCE(d.internal_detail, '')), '') IS NULL
+        THEN 'Sin detalle interno'
+    ELSE TRIM(d.internal_detail)
+END";
 
 $dependencyExists = (int)(one(
     $pdo,
@@ -179,7 +195,7 @@ render_breadcrumbs([
                         </td>
                         <td><?= h($person['location_original'] ?: 'No indicada') ?></td>
                         <td class="<?= empty($person['territorial_zone_name']) ? 'empty-cell' : '' ?>"><?= h($person['territorial_zone_name'] ?: 'No aplica') ?></td>
-                        <td><?= h($person['internal_detail'] ?: 'Sin detalle interno') ?></td>
+                        <td><?= h($dependencyName) ?></td>
                         <td><span class="badge <?= h(assignment_class($person['assignment_status'])) ?>"><?= h(assignment_label($person['assignment_status'])) ?></span></td>
                         <td><a class="button soft" href="persona_detalle.php?id=<?= h($person['personnel_staging_id']) ?>">Ver ficha</a></td>
                     </tr>
