@@ -25,4 +25,48 @@
             }
         });
     });
+
+    const loadDependencyTable = async () => {
+        const currentPath = window.location.pathname.toLowerCase();
+        if (!currentPath.endsWith('/unidad_detalle.php')) {
+            return;
+        }
+
+        const parameters = new URLSearchParams(window.location.search);
+        const unitId = parameters.get('id');
+        const sourceId = parameters.get('source_id');
+        const personnelSection = document.getElementById('personal');
+
+        if (!unitId || !personnelSection || document.getElementById('dependencias-secciones')) {
+            return;
+        }
+
+        const endpoint = new URL('dependencias_unidad.php', window.location.href);
+        endpoint.searchParams.set('unit_id', unitId);
+        if (sourceId) {
+            endpoint.searchParams.set('source_id', sourceId);
+        }
+
+        try {
+            const response = await fetch(endpoint, {
+                credentials: 'same-origin',
+                headers: {
+                    'X-Requested-With': 'XMLHttpRequest',
+                },
+            });
+
+            if (!response.ok) {
+                return;
+            }
+
+            const html = (await response.text()).trim();
+            if (html !== '') {
+                personnelSection.insertAdjacentHTML('beforebegin', html);
+            }
+        } catch (error) {
+            console.warn('No fue posible cargar la tabla de dependencias.', error);
+        }
+    };
+
+    loadDependencyTable();
 })();
