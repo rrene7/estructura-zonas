@@ -45,8 +45,34 @@ function h(mixed $value): string
     return htmlspecialchars((string)$value, ENT_QUOTES, 'UTF-8');
 }
 
+function expand_repeated_named_parameters(string $sql, array $params): array
+{
+    foreach ($params as $name => $value) {
+        if (!is_string($name) || $name === '') {
+            continue;
+        }
+
+        $pattern = '/:' . preg_quote($name, '/') . '\b/';
+        if (preg_match_all($pattern, $sql, $matches, PREG_OFFSET_CAPTURE) < 2) {
+            continue;
+        }
+
+        $occurrences = $matches[0];
+        for ($index = count($occurrences) - 1; $index >= 1; $index--) {
+            $replacementName = $name . '__' . ($index + 1);
+            $offset = (int)$occurrences[$index][1];
+            $length = strlen((string)$occurrences[$index][0]);
+            $sql = substr_replace($sql, ':' . $replacementName, $offset, $length);
+            $params[$replacementName] = $value;
+        }
+    }
+
+    return [$sql, $params];
+}
+
 function rows(PDO $pdo, string $sql, array $params = []): array
 {
+    [$sql, $params] = expand_repeated_named_parameters($sql, $params);
     $statement = $pdo->prepare($sql);
     $statement->execute($params);
     return $statement->fetchAll();
