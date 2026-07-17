@@ -21,7 +21,7 @@ function render_header(string $title, string $active = 'inicio', string $subtitl
         <meta name="color-scheme" content="light">
         <title><?= h($title) ?> | Pie de Fuerza</title>
         <link rel="stylesheet" href="assets/css/dashboard.css?v=20260717-1">
-        <link rel="stylesheet" href="assets/css/admin.css?v=20260717-1">
+        <link rel="stylesheet" href="assets/css/admin.css?v=20260717-2">
     </head>
     <body>
     <div class="app-shell">
@@ -86,6 +86,7 @@ function render_footer(): void
         </div>
     </div>
     <script src="assets/js/dashboard.js?v=20260716-4"></script>
+    <script src="assets/js/estructura_admin.js?v=20260717-1"></script>
     </body>
     </html>
     <?php
