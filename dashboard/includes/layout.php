@@ -20,7 +20,7 @@ function render_header(string $title, string $active = 'inicio', string $subtitl
         <meta name="viewport" content="width=device-width, initial-scale=1">
         <meta name="color-scheme" content="light">
         <title><?= h($title) ?> | Pie de Fuerza</title>
-        <link rel="stylesheet" href="assets/css/dashboard.css?v=20260716-2">
+        <link rel="stylesheet" href="assets/css/dashboard.css?v=20260717-1">
     </head>
     <body>
     <div class="app-shell">
@@ -47,8 +47,9 @@ function render_header(string $title, string $active = 'inicio', string $subtitl
                 <p>La unidad funcional, la zona donde presta servicio y la dependencia interna de cada funcionario.</p>
             </div>
 
-            <details class="technical-menu">
+            <details class="technical-menu" <?= $active === 'estructura_admin' ? 'open' : '' ?>>
                 <summary>Herramientas técnicas</summary>
+                <a href="estructura_admin.php" class="<?= $active === 'estructura_admin' ? 'active' : '' ?>">Administrar estructura</a>
                 <a href="revision.php">Revisión de estructura</a>
                 <a href="trabajo_zonas.php">Trabajo por zona</a>
                 <a href="asignar_unidades_direccion.php">Unidades por dirección</a>
