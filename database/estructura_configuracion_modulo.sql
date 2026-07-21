@@ -125,8 +125,7 @@ BEGIN
       INTO v_rule_exists, v_old_is_allowed
     FROM structure_unit_type_rules
     WHERE parent_type_id = p_parent_type_id
-      AND child_type_id = p_child_type_id
-    FOR UPDATE;
+      AND child_type_id = p_child_type_id;
 
     INSERT INTO structure_unit_type_rules (
         parent_type_id,
