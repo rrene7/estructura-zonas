@@ -1,65 +1,493 @@
 <?php
-$configPath = __DIR__ . '/config.php';
-if (!file_exists($configPath)) { die('Falta dashboard/config.php'); }
-$config = require $configPath;
-$dsn = sprintf('mysql:host=%s;port=%s;dbname=%s;charset=%s', $config['db_host'], $config['db_port'], $config['db_name'], $config['charset']);
-$pdo = new PDO($dsn, $config['db_user'], $config['db_pass'], [PDO::ATTR_ERRMODE=>PDO::ERRMODE_EXCEPTION, PDO::ATTR_DEFAULT_FETCH_MODE=>PDO::FETCH_ASSOC]);
-$pdo->exec('SET NAMES utf8mb4 COLLATE utf8mb4_unicode_ci');
-function h($v){ return htmlspecialchars((string)$v, ENT_QUOTES, 'UTF-8'); }
-function q($pdo,$sql,$p=[]){ $s=$pdo->prepare($sql); $s->execute($p); return $s->fetchAll(); }
-function one($pdo,$sql,$p=[]){ $r=q($pdo,$sql,$p); return $r[0] ?? []; }
-function table_exists($pdo,$table){ $s=$pdo->prepare('SELECT COUNT(*) total FROM information_schema.tables WHERE table_schema=DATABASE() AND table_name=:t'); $s->execute(['t'=>$table]); return ((int)($s->fetch()['total'] ?? 0))>0; }
-function total($pdo,$sql,$p=[]){ $r=one($pdo,$sql,$p); return (int)($r['total'] ?? 0); }
+declare(strict_types=1);
 
-$hasCatalogo = table_exists($pdo,'moi_area_sector_catalog');
-$hasAsign = table_exists($pdo,'moi_area_letter_assignments');
-$hasAudit = table_exists($pdo,'moi_area_assignment_audit');
-$hasDinsec = table_exists($pdo,'dinsec_personnel_reference');
-$hasLinks = table_exists($pdo,'dinsec_personnel_unit_links');
-$zonaJoin = "BINARY cab.legacy_table = BINARY 'MOI_CABECERA_ZONA' AND CAST(cab.legacy_id AS UNSIGNED) = z.zone_number";
-$zonas = q($pdo, "SELECT z.id,z.zone_number,z.zone_label,z.normalized_name,cab.id AS cabecera_unit_id FROM moi_zonas_cabecera_vigentes z LEFT JOIN organizational_units cab ON $zonaJoin WHERE z.lifecycle_status='vigente' ORDER BY z.zone_number");
-$zonaId = (int)($_GET['zona_id'] ?? ($zonas[0]['id'] ?? 0));
-$zona = one($pdo, "SELECT z.id,z.zone_number,z.zone_label,z.normalized_name,cab.id AS cabecera_unit_id FROM moi_zonas_cabecera_vigentes z LEFT JOIN organizational_units cab ON $zonaJoin WHERE z.id=:id", ['id'=>$zonaId]);
+require __DIR__ . '/includes/bootstrap.php';
+require __DIR__ . '/includes/layout.php';
 
-function metricas_zona($pdo,$z,$hasCatalogo,$hasAsign,$hasDinsec,$hasLinks){
-    $cab=(int)($z['cabecera_unit_id'] ?? 0);
-    $zn=(int)($z['zone_number'] ?? 0);
-    $norm=$z['normalized_name'] ?? '';
-    $out=['catalogo'=>0,'asignadas'=>0,'sin_sector'=>0,'cab_mal'=>0,'pendientes'=>0,'dinsec_total'=>0,'dinsec_pend'=>0,'dinsec_vinc'=>0,'dinsec_sin_vinc'=>0];
-    if ($hasCatalogo) { $out['catalogo']=total($pdo,"SELECT COUNT(*) total FROM moi_area_sector_catalog WHERE active=1 AND zone_number=:zn",['zn'=>$zn]); }
-    if ($hasAsign && $cab) {
-        $out['asignadas']=total($pdo,"SELECT COUNT(*) total FROM moi_area_letter_assignments aa JOIN organizational_units ou ON ou.id=aa.organizational_unit_id WHERE aa.zone_unit_id=:cab AND BINARY ou.legacy_table <> BINARY 'MOI_CABECERA_ZONA' AND BINARY ou.legacy_table <> BINARY 'MOI_CABECERA_DIRECCION' AND BINARY ou.legacy_table <> BINARY 'MOI_CABECERA_AREA'",['cab'=>$cab]);
-        $out['sin_sector']=total($pdo,"SELECT COUNT(*) total FROM moi_area_letter_assignments aa JOIN organizational_units ou ON ou.id=aa.organizational_unit_id WHERE aa.zone_unit_id=:cab AND (aa.location_sector IS NULL OR aa.location_sector='') AND BINARY ou.legacy_table <> BINARY 'MOI_CABECERA_ZONA' AND BINARY ou.legacy_table <> BINARY 'MOI_CABECERA_DIRECCION' AND BINARY ou.legacy_table <> BINARY 'MOI_CABECERA_AREA'",['cab'=>$cab]);
-        $out['cab_mal']=total($pdo,"SELECT COUNT(*) total FROM moi_area_letter_assignments aa JOIN organizational_units ou ON ou.id=aa.organizational_unit_id WHERE aa.zone_unit_id=:cab AND (BINARY ou.legacy_table=BINARY 'MOI_CABECERA_ZONA' OR BINARY ou.legacy_table=BINARY 'MOI_CABECERA_DIRECCION' OR BINARY ou.legacy_table=BINARY 'MOI_CABECERA_AREA')",['cab'=>$cab]);
+function zone_review_total(PDO $pdo, string $sql, array $params = []): int
+{
+    return (int)(one($pdo, $sql, $params)['total'] ?? 0);
+}
+
+function zone_review_metrics(
+    PDO $pdo,
+    array $zone,
+    bool $hasCatalog,
+    bool $hasAssignments,
+    bool $hasDinsec,
+    bool $hasLinks
+): array {
+    $zoneUnitId = (int)($zone['cabecera_unit_id'] ?? 0);
+    $zoneNumber = (int)($zone['zone_number'] ?? 0);
+    $normalizedName = trim((string)($zone['normalized_name'] ?? ''));
+
+    $metrics = [
+        'catalog_total' => 0,
+        'assigned_units' => 0,
+        'without_sector' => 0,
+        'invalid_headers' => 0,
+        'possible_pending' => 0,
+        'dinsec_total' => 0,
+        'dinsec_linked' => 0,
+        'dinsec_unlinked' => 0,
+        'dinsec_pending' => 0,
+    ];
+
+    if ($hasCatalog) {
+        $metrics['catalog_total'] = zone_review_total(
+            $pdo,
+            'SELECT COUNT(*) AS total
+             FROM moi_area_sector_catalog
+             WHERE active = 1
+               AND zone_number = :zone_number',
+            ['zone_number' => $zoneNumber]
+        );
     }
-    if ($cab && $norm !== '') {
-        $pat='%'.$norm.'%';
-        $noAsign="AND NOT EXISTS (SELECT 1 FROM organizational_units c WHERE c.id=ou.parent_id AND (BINARY c.legacy_table=BINARY 'MOI_CABECERA_ZONA' OR BINARY c.legacy_table=BINARY 'MOI_CABECERA_DIRECCION' OR BINARY c.legacy_table=BINARY 'MOI_CABECERA_AREA')) AND NOT EXISTS (SELECT 1 FROM organizational_unit_relationships r JOIN organizational_units zc ON zc.id=r.target_unit_id WHERE r.source_unit_id=ou.id AND r.status='active' AND (BINARY zc.legacy_table=BINARY 'MOI_CABECERA_ZONA' OR BINARY zc.legacy_table=BINARY 'MOI_CABECERA_AREA'))";
-        $out['pendientes']=total($pdo,"SELECT COUNT(*) total FROM organizational_units ou WHERE ou.lifecycle_status='vigente' $noAsign AND BINARY ou.legacy_table <> BINARY 'MOI_CABECERA_AREA' AND UPPER(ou.name COLLATE utf8mb4_unicode_ci) LIKE :pat",['pat'=>$pat]);
+
+    if ($hasAssignments && $zoneUnitId > 0) {
+        $excludedHeaders = "BINARY unit_row.legacy_table NOT IN (
+            BINARY 'MOI_CABECERA_ZONA',
+            BINARY 'MOI_CABECERA_DIRECCION',
+            BINARY 'MOI_CABECERA_AREA'
+        )";
+
+        $metrics['assigned_units'] = zone_review_total(
+            $pdo,
+            "SELECT COUNT(*) AS total
+             FROM moi_area_letter_assignments assignment_row
+             JOIN organizational_units unit_row
+               ON unit_row.id = assignment_row.organizational_unit_id
+             WHERE assignment_row.zone_unit_id = :zone_unit_id
+               AND {$excludedHeaders}",
+            ['zone_unit_id' => $zoneUnitId]
+        );
+
+        $metrics['without_sector'] = zone_review_total(
+            $pdo,
+            "SELECT COUNT(*) AS total
+             FROM moi_area_letter_assignments assignment_row
+             JOIN organizational_units unit_row
+               ON unit_row.id = assignment_row.organizational_unit_id
+             WHERE assignment_row.zone_unit_id = :zone_unit_id
+               AND (assignment_row.location_sector IS NULL OR assignment_row.location_sector = '')
+               AND {$excludedHeaders}",
+            ['zone_unit_id' => $zoneUnitId]
+        );
+
+        $metrics['invalid_headers'] = zone_review_total(
+            $pdo,
+            "SELECT COUNT(*) AS total
+             FROM moi_area_letter_assignments assignment_row
+             JOIN organizational_units unit_row
+               ON unit_row.id = assignment_row.organizational_unit_id
+             WHERE assignment_row.zone_unit_id = :zone_unit_id
+               AND BINARY unit_row.legacy_table IN (
+                    BINARY 'MOI_CABECERA_ZONA',
+                    BINARY 'MOI_CABECERA_DIRECCION',
+                    BINARY 'MOI_CABECERA_AREA'
+               )",
+            ['zone_unit_id' => $zoneUnitId]
+        );
     }
+
+    if ($zoneUnitId > 0 && $normalizedName !== '') {
+        $metrics['possible_pending'] = zone_review_total(
+            $pdo,
+            "SELECT COUNT(*) AS total
+             FROM organizational_units unit_row
+             WHERE unit_row.lifecycle_status = 'vigente'
+               AND BINARY unit_row.legacy_table <> BINARY 'MOI_CABECERA_AREA'
+               AND UPPER(unit_row.name COLLATE utf8mb4_unicode_ci) LIKE :pattern
+               AND NOT EXISTS (
+                    SELECT 1
+                    FROM organizational_units parent_row
+                    WHERE parent_row.id = unit_row.parent_id
+                      AND BINARY parent_row.legacy_table IN (
+                            BINARY 'MOI_CABECERA_ZONA',
+                            BINARY 'MOI_CABECERA_DIRECCION',
+                            BINARY 'MOI_CABECERA_AREA'
+                      )
+               )
+               AND NOT EXISTS (
+                    SELECT 1
+                    FROM organizational_unit_relationships relationship_row
+                    JOIN organizational_units target_row
+                      ON target_row.id = relationship_row.target_unit_id
+                    WHERE relationship_row.source_unit_id = unit_row.id
+                      AND relationship_row.status = 'active'
+                      AND BINARY target_row.legacy_table IN (
+                            BINARY 'MOI_CABECERA_ZONA',
+                            BINARY 'MOI_CABECERA_AREA'
+                      )
+               )",
+            ['pattern' => '%' . $normalizedName . '%']
+        );
+    }
+
     if ($hasDinsec) {
-        $zoneWhere = "(d.zone_unit_id=:cab OR d.zone_label LIKE :zl)";
-        $p=['cab'=>$cab,'zl'=>'%'.$z['zone_label'].'%'];
-        $out['dinsec_total']=total($pdo,"SELECT COUNT(*) total FROM dinsec_personnel_reference d WHERE $zoneWhere",$p);
-        $out['dinsec_pend']=total($pdo,"SELECT COUNT(*) total FROM dinsec_personnel_reference d WHERE d.review_status='pendiente' AND $zoneWhere",$p);
+        $zoneCondition = '(reference_row.zone_unit_id = :zone_unit_id OR reference_row.zone_label LIKE :zone_label)';
+        $parameters = [
+            'zone_unit_id' => $zoneUnitId,
+            'zone_label' => '%' . (string)($zone['zone_label'] ?? '') . '%',
+        ];
+
+        $metrics['dinsec_total'] = zone_review_total(
+            $pdo,
+            "SELECT COUNT(*) AS total
+             FROM dinsec_personnel_reference reference_row
+             WHERE {$zoneCondition}",
+            $parameters
+        );
+
+        $metrics['dinsec_pending'] = zone_review_total(
+            $pdo,
+            "SELECT COUNT(*) AS total
+             FROM dinsec_personnel_reference reference_row
+             WHERE reference_row.review_status = 'pendiente'
+               AND {$zoneCondition}",
+            $parameters
+        );
+
         if ($hasLinks) {
-            $out['dinsec_vinc']=total($pdo,"SELECT COUNT(*) total FROM dinsec_personnel_reference d JOIN dinsec_personnel_unit_links l ON l.dinsec_personnel_reference_id=d.id AND l.status='active' WHERE $zoneWhere",$p);
-            $out['dinsec_sin_vinc']=total($pdo,"SELECT COUNT(*) total FROM dinsec_personnel_reference d LEFT JOIN dinsec_personnel_unit_links l ON l.dinsec_personnel_reference_id=d.id AND l.status='active' WHERE $zoneWhere AND l.id IS NULL",$p);
+            $metrics['dinsec_linked'] = zone_review_total(
+                $pdo,
+                "SELECT COUNT(*) AS total
+                 FROM dinsec_personnel_reference reference_row
+                 JOIN dinsec_personnel_unit_links link_row
+                   ON link_row.dinsec_personnel_reference_id = reference_row.id
+                  AND link_row.status = 'active'
+                 WHERE {$zoneCondition}",
+                $parameters
+            );
+
+            $metrics['dinsec_unlinked'] = zone_review_total(
+                $pdo,
+                "SELECT COUNT(*) AS total
+                 FROM dinsec_personnel_reference reference_row
+                 LEFT JOIN dinsec_personnel_unit_links link_row
+                   ON link_row.dinsec_personnel_reference_id = reference_row.id
+                  AND link_row.status = 'active'
+                 WHERE {$zoneCondition}
+                   AND link_row.id IS NULL",
+                $parameters
+            );
         } else {
-            $out['dinsec_sin_vinc']=$out['dinsec_total'];
+            $metrics['dinsec_unlinked'] = $metrics['dinsec_total'];
         }
     }
-    return $out;
+
+    $metrics['structure_issues'] =
+        $metrics['without_sector']
+        + $metrics['invalid_headers']
+        + $metrics['possible_pending'];
+
+    $metrics['personnel_issues'] =
+        $metrics['dinsec_unlinked']
+        + $metrics['dinsec_pending'];
+
+    $metrics['total_issues'] =
+        $metrics['structure_issues']
+        + $metrics['personnel_issues'];
+
+    return $metrics;
 }
-$metricas = $zona ? metricas_zona($pdo,$zona,$hasCatalogo,$hasAsign,$hasDinsec,$hasLinks) : [];
-$tablero=[]; foreach($zonas as $z){ $m=metricas_zona($pdo,$z,$hasCatalogo,$hasAsign,$hasDinsec,$hasLinks); $tablero[]=['z'=>$z,'m'=>$m]; }
+
+$requiredView = 'moi_zonas_cabecera_vigentes';
+$zonesAvailable = table_exists($pdo, $requiredView);
+
+render_header(
+    'Revisión técnica por zona',
+    'trabajo_zonas',
+    'Comprueba que la estructura y las referencias de personal estén correctamente vinculadas.'
+);
+render_breadcrumbs([
+    ['label' => 'Inicio', 'href' => 'index.php'],
+    ['label' => 'Herramientas técnicas', 'href' => ''],
+    ['label' => 'Revisión por zona', 'href' => ''],
+]);
+
+if (!$zonesAvailable) {
+    render_empty_state(
+        'No está disponible el catálogo de zonas',
+        'Falta la vista moi_zonas_cabecera_vigentes en la base de datos.'
+    );
+    render_footer();
+    return;
+}
+
+$hasCatalog = table_exists($pdo, 'moi_area_sector_catalog');
+$hasAssignments = table_exists($pdo, 'moi_area_letter_assignments');
+$hasDinsec = table_exists($pdo, 'dinsec_personnel_reference');
+$hasLinks = table_exists($pdo, 'dinsec_personnel_unit_links');
+
+$zoneJoin = "BINARY zone_unit.legacy_table = BINARY 'MOI_CABECERA_ZONA'
+    AND CAST(zone_unit.legacy_id AS UNSIGNED) = zone_row.zone_number";
+
+$zones = rows(
+    $pdo,
+    "SELECT
+        zone_row.id,
+        zone_row.zone_number,
+        zone_row.zone_label,
+        zone_row.normalized_name,
+        zone_unit.id AS cabecera_unit_id
+     FROM moi_zonas_cabecera_vigentes zone_row
+     LEFT JOIN organizational_units zone_unit ON {$zoneJoin}
+     WHERE zone_row.lifecycle_status = 'vigente'
+     ORDER BY zone_row.zone_number"
+);
+
+$selectedZoneId = max(0, (int)($_GET['zona_id'] ?? ($zones[0]['id'] ?? 0)));
+$selectedZone = [];
+$board = [];
+
+foreach ($zones as $zone) {
+    $metrics = zone_review_metrics(
+        $pdo,
+        $zone,
+        $hasCatalog,
+        $hasAssignments,
+        $hasDinsec,
+        $hasLinks
+    );
+
+    $board[] = [
+        'zone' => $zone,
+        'metrics' => $metrics,
+    ];
+
+    if ((int)$zone['id'] === $selectedZoneId) {
+        $selectedZone = $zone;
+        $selectedMetrics = $metrics;
+    }
+}
+
+if (!$selectedZone && $board) {
+    $selectedZone = $board[0]['zone'];
+    $selectedMetrics = $board[0]['metrics'];
+    $selectedZoneId = (int)$selectedZone['id'];
+}
+
+$readyZones = 0;
+$zonesToReview = 0;
+$totalIssues = 0;
+foreach ($board as $row) {
+    $issues = (int)$row['metrics']['total_issues'];
+    $totalIssues += $issues;
+    if ($issues === 0) {
+        $readyZones++;
+    } else {
+        $zonesToReview++;
+    }
+}
 ?>
-<!doctype html><html lang="es"><head><meta charset="utf-8"><title>Trabajo por zona</title><style>
-body{font-family:Arial;margin:0;background:#f4f6f8;color:#1f2937}header{background:#111827;color:white;padding:18px 28px}main{padding:20px}.top a{color:#d1d5db;margin-right:14px}.layout{display:grid;grid-template-columns:330px 1fr;gap:18px}.card,section{background:white;border-radius:10px;padding:14px;box-shadow:0 1px 4px #0002;margin-bottom:16px}.cab a{display:block;padding:8px;border-bottom:1px solid #e5e7eb;color:#111827;text-decoration:none}.cab a.act{background:#e0f2fe;font-weight:bold}.grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(145px,1fr));gap:10px}.kpi{background:#f9fafb;border:1px solid #e5e7eb;border-radius:8px;padding:12px}.kpi .n{font-size:24px;font-weight:bold}.muted{font-size:12px;color:#6b7280}.btn{display:inline-block;background:#047857;color:white;text-decoration:none;border-radius:8px;padding:9px 11px;margin:4px}.btn2{background:#1d4ed8}.warn{background:#fffbeb;border:1px solid #f59e0b}.bad{color:#b91c1c;font-weight:bold}.ok{color:#047857;font-weight:bold}table{width:100%;border-collapse:collapse;font-size:13px}th,td{border-bottom:1px solid #e5e7eb;text-align:left;padding:7px;vertical-align:top}th{background:#f9fafb}
-</style></head><body><header><h1>Trabajo por zona</h1><p class="top"><a href="index.php">Dashboard</a><a href="catalogo_sectores.php">Catalogo sectores</a><a href="asignar_areas_catalogo.php">Asignar con catalogo</a><a href="reasignar_areas_catalogo.php">Corregir areas</a><a href="dinsec_personal.php">DINSEC personal</a><a href="detalle_zona_personal.php?zona_id=<?=h($zona['id'] ?? '')?>">Detalle zona/personas</a></p></header><main>
-<div class="layout"><div class="card cab"><h2>Zonas</h2><?php foreach($zonas as $z):?><a class="<?=((int)$z['id']===(int)($zona['id']??0))?'act':''?>" href="?zona_id=<?=h($z['id'])?>"><?=h($z['zone_number'])?> - <?=h($z['zone_label'])?></a><?php endforeach;?></div><div>
-<section><h2><?=h($zona['zone_label'] ?? 'Seleccione zona')?></h2><p class="muted">Orden de trabajo: catalogo → aplicar estructura real → vincular personal DINSEC → revisar faltantes.</p><div class="grid"><div class="kpi"><div class="muted">Sectores catalogo</div><div class="n"><?=h($metricas['catalogo'] ?? 0)?></div></div><div class="kpi"><div class="muted">Unidades asignadas</div><div class="n"><?=h($metricas['asignadas'] ?? 0)?></div></div><div class="kpi"><div class="muted">Sin sector</div><div class="n <?=(($metricas['sin_sector']??0)>0?'bad':'ok')?>"><?=h($metricas['sin_sector'] ?? 0)?></div></div><div class="kpi"><div class="muted">Cabeceras mal</div><div class="n <?=(($metricas['cab_mal']??0)>0?'bad':'ok')?>"><?=h($metricas['cab_mal'] ?? 0)?></div></div><div class="kpi"><div class="muted">Pendientes posibles</div><div class="n"><?=h($metricas['pendientes'] ?? 0)?></div></div><div class="kpi"><div class="muted">DINSEC total</div><div class="n"><?=h($metricas['dinsec_total'] ?? 0)?></div></div><div class="kpi"><div class="muted">DINSEC vinculado</div><div class="n <?=(($metricas['dinsec_vinc']??0)>0?'ok':'')?>"><?=h($metricas['dinsec_vinc'] ?? 0)?></div></div><div class="kpi"><div class="muted">DINSEC sin vinculo</div><div class="n <?=(($metricas['dinsec_sin_vinc']??0)>0?'bad':'ok')?>"><?=h($metricas['dinsec_sin_vinc'] ?? 0)?></div></div><div class="kpi"><div class="muted">DINSEC pendiente revision</div><div class="n <?=(($metricas['dinsec_pend']??0)>0?'bad':'ok')?>"><?=h($metricas['dinsec_pend'] ?? 0)?></div></div></div></section>
-<section><h2>Acciones de esta zona</h2><a class="btn" href="catalogo_sectores.php?zone_number=<?=h($zona['zone_number'] ?? '')?>">1. Revisar catalogo</a><a class="btn btn2" href="reasignar_areas_catalogo.php?zona_id=<?=h($zona['id'] ?? '')?>&solo=incompletas">2. Corregir sin sector</a><a class="btn btn2" href="reasignar_areas_catalogo.php?zona_id=<?=h($zona['id'] ?? '')?>&solo=todas">3. Ver todas asignadas</a><a class="btn" href="asignar_areas_catalogo.php?zona_id=<?=h($zona['id'] ?? '')?>&buscar=<?=h($zona['normalized_name'] ?? '')?>">4. Asignar pendientes</a><a class="btn" href="dinsec_personal.php?buscar=<?=h($zona['zone_label'] ?? '')?>">5. Revisar DINSEC</a><a class="btn" href="detalle_zona_personal.php?zona_id=<?=h($zona['id'] ?? '')?>">6. Ver detalle zona/personas</a></section>
-<?php if(($metricas['cab_mal'] ?? 0)>0):?><section class="warn"><h2>Atencion</h2><p>Esta zona tiene cabeceras metidas como si fueran unidades. Entre a <b>Corregir sin sector</b> y use el boton <b>Limpiar cabeceras</b>. No borra unidades ni personal.</p></section><?php endif;?>
-<section><h2>Tablero general por zona</h2><table><thead><tr><th>Zona</th><th>Catalogo</th><th>Asignadas</th><th>Sin sector</th><th>Cabeceras mal</th><th>Pendientes</th><th>DINSEC total</th><th>Vinculado</th><th>Sin vinculo</th><th>Pend. revision</th><th>Accion</th></tr></thead><tbody><?php foreach($tablero as $row): $z=$row['z']; $m=$row['m'];?><tr><td><?=h($z['zone_number'])?> - <?=h($z['zone_label'])?></td><td><?=h($m['catalogo'])?></td><td><?=h($m['asignadas'])?></td><td class="<?=($m['sin_sector']>0?'bad':'ok')?>"><?=h($m['sin_sector'])?></td><td class="<?=($m['cab_mal']>0?'bad':'ok')?>"><?=h($m['cab_mal'])?></td><td><?=h($m['pendientes'])?></td><td><?=h($m['dinsec_total'])?></td><td class="<?=($m['dinsec_vinc']>0?'ok':'')?>"><?=h($m['dinsec_vinc'])?></td><td class="<?=($m['dinsec_sin_vinc']>0?'bad':'ok')?>"><?=h($m['dinsec_sin_vinc'])?></td><td class="<?=($m['dinsec_pend']>0?'bad':'ok')?>"><?=h($m['dinsec_pend'])?></td><td><a href="?zona_id=<?=h($z['id'])?>">Abrir</a> | <a href="detalle_zona_personal.php?zona_id=<?=h($z['id'])?>">Detalle</a></td></tr><?php endforeach;?></tbody></table></section>
-</div></div></main></body></html>
+
+<div class="notice info">
+    <strong>¿Para qué sirve esta pantalla?</strong>
+    Es una revisión técnica. No cambia los nombres de las zonas ni traslada personal. Solo identifica si una zona tiene unidades sin clasificar, registros técnicos incorrectos o referencias DINSEC sin vincular.
+</div>
+
+<div class="kpi-grid">
+    <article class="kpi-card card">
+        <span class="kpi-label">Zonas revisadas</span>
+        <strong class="kpi-value"><?= h(format_number(count($board))) ?></strong>
+        <span class="kpi-note">Zonas vigentes incluidas en la verificación.</span>
+    </article>
+    <article class="kpi-card card success">
+        <span class="kpi-label">Sin pendientes</span>
+        <strong class="kpi-value"><?= h(format_number($readyZones)) ?></strong>
+        <span class="kpi-note">No presentan observaciones en esta revisión.</span>
+    </article>
+    <article class="kpi-card card warning">
+        <span class="kpi-label">Requieren revisión</span>
+        <strong class="kpi-value"><?= h(format_number($zonesToReview)) ?></strong>
+        <span class="kpi-note">Tienen al menos una observación técnica.</span>
+    </article>
+    <article class="kpi-card card info">
+        <span class="kpi-label">Observaciones totales</span>
+        <strong class="kpi-value"><?= h(format_number($totalIssues)) ?></strong>
+        <span class="kpi-note">Suma de estructura y referencias de personal.</span>
+    </article>
+</div>
+
+<section class="panel">
+    <div class="panel-header">
+        <div>
+            <h2>Seleccionar una zona</h2>
+            <p>Elija la zona que desea revisar. La información se presenta en dos bloques sencillos.</p>
+        </div>
+    </div>
+    <form class="filter-grid" method="get" action="trabajo_zonas.php">
+        <div class="field">
+            <label for="zona_id">Zona policial</label>
+            <select id="zona_id" name="zona_id">
+                <?php foreach ($zones as $zone): ?>
+                    <option value="<?= h($zone['id']) ?>" <?= (int)$zone['id'] === $selectedZoneId ? 'selected' : '' ?>>
+                        <?= h($zone['zone_number']) ?> - <?= h($zone['zone_label']) ?>
+                    </option>
+                <?php endforeach; ?>
+            </select>
+        </div>
+        <div class="field">
+            <label>&nbsp;</label>
+            <button class="button primary" type="submit">Revisar zona</button>
+        </div>
+    </form>
+</section>
+
+<?php if ($selectedZone): ?>
+    <?php
+    $structureIssues = (int)$selectedMetrics['structure_issues'];
+    $personnelIssues = (int)$selectedMetrics['personnel_issues'];
+    ?>
+    <div class="page-intro">
+        <div>
+            <h2><?= h($selectedZone['zone_label']) ?></h2>
+            <p>Resumen técnico de la estructura territorial y las referencias DINSEC.</p>
+        </div>
+        <div class="button-row">
+            <a class="button primary" href="detalle_zona_personal.php?zona_id=<?= h($selectedZoneId) ?>">Ver detalle de la zona</a>
+            <a class="button" href="unidades.php?grupo=zonas">Ver zonas en modo consulta</a>
+        </div>
+    </div>
+
+    <div class="two-column">
+        <section class="panel">
+            <div class="panel-header">
+                <div>
+                    <h2>Estructura de la zona</h2>
+                    <p>Comprueba que las unidades estén clasificadas dentro del área o sector correcto.</p>
+                </div>
+                <span class="badge <?= $structureIssues === 0 ? 'success' : 'warning' ?>">
+                    <?= $structureIssues === 0 ? 'Correcta' : 'Revisar' ?>
+                </span>
+            </div>
+            <div class="detail-grid">
+                <article class="detail-card card">
+                    <span class="kpi-label">Unidades ubicadas</span>
+                    <div class="value"><?= h(format_number($selectedMetrics['assigned_units'])) ?></div>
+                    <div class="description">Unidades ya asociadas con esta zona.</div>
+                </article>
+                <article class="detail-card card">
+                    <span class="kpi-label">Sin área o sector</span>
+                    <div class="value"><?= h(format_number($selectedMetrics['without_sector'])) ?></div>
+                    <div class="description">Unidades que necesitan completar su clasificación territorial.</div>
+                </article>
+                <article class="detail-card card">
+                    <span class="kpi-label">Posibles pendientes</span>
+                    <div class="value"><?= h(format_number($selectedMetrics['possible_pending'])) ?></div>
+                    <div class="description">Nombres relacionados con la zona que aún deben comprobarse.</div>
+                </article>
+            </div>
+            <?php if ((int)$selectedMetrics['invalid_headers'] > 0): ?>
+                <div class="notice warning">
+                    Hay <?= h(format_number($selectedMetrics['invalid_headers'])) ?> registros técnicos de cabecera clasificados incorrectamente como unidades.
+                </div>
+            <?php endif; ?>
+        </section>
+
+        <section class="panel">
+            <div class="panel-header">
+                <div>
+                    <h2>Referencias de personal DINSEC</h2>
+                    <p>Comprueba que las referencias históricas de personal estén conectadas con una unidad.</p>
+                </div>
+                <?php if (!$hasDinsec): ?>
+                    <span class="badge neutral">No disponible</span>
+                <?php else: ?>
+                    <span class="badge <?= $personnelIssues === 0 ? 'success' : 'warning' ?>">
+                        <?= $personnelIssues === 0 ? 'Vinculado' : 'Revisar' ?>
+                    </span>
+                <?php endif; ?>
+            </div>
+            <div class="detail-grid">
+                <article class="detail-card card">
+                    <span class="kpi-label">Total DINSEC</span>
+                    <div class="value"><?= h(format_number($selectedMetrics['dinsec_total'])) ?></div>
+                    <div class="description">Referencias encontradas para esta zona.</div>
+                </article>
+                <article class="detail-card card">
+                    <span class="kpi-label">Vinculadas</span>
+                    <div class="value"><?= h(format_number($selectedMetrics['dinsec_linked'])) ?></div>
+                    <div class="description">Referencias conectadas con una unidad vigente.</div>
+                </article>
+                <article class="detail-card card">
+                    <span class="kpi-label">Pendientes</span>
+                    <div class="value"><?= h(format_number(
+                        (int)$selectedMetrics['dinsec_unlinked'] + (int)$selectedMetrics['dinsec_pending']
+                    )) ?></div>
+                    <div class="description">Sin vínculo o pendientes de revisión manual.</div>
+                </article>
+            </div>
+        </section>
+    </div>
+
+    <section class="panel">
+        <details class="advanced">
+            <summary>Abrir herramientas técnicas de esta zona</summary>
+            <p class="result-summary">Estas opciones son para correcciones técnicas. La consulta normal debe realizarse desde Zonas policiales.</p>
+            <div class="button-row">
+                <a class="button" href="catalogo_sectores.php?zone_number=<?= h($selectedZone['zone_number']) ?>">Catálogo de áreas y sectores</a>
+                <a class="button" href="reasignar_areas_catalogo.php?zona_id=<?= h($selectedZoneId) ?>&solo=incompletas">Revisar unidades sin sector</a>
+                <a class="button" href="asignar_areas_catalogo.php?zona_id=<?= h($selectedZoneId) ?>&buscar=<?= h($selectedZone['normalized_name']) ?>">Revisar posibles pendientes</a>
+                <a class="button" href="dinsec_personal.php?buscar=<?= h($selectedZone['zone_label']) ?>">Revisar referencias DINSEC</a>
+            </div>
+        </details>
+    </section>
+<?php endif; ?>
+
+<section class="panel">
+    <div class="panel-header">
+        <div>
+            <h2>Estado general de las zonas</h2>
+            <p>Vista resumida. Abra únicamente las zonas que aparezcan con estado “Revisar”.</p>
+        </div>
+    </div>
+
+    <div class="table-wrap">
+        <table>
+            <thead>
+            <tr>
+                <th>Zona</th>
+                <th>Estructura</th>
+                <th>Personal DINSEC</th>
+                <th>Observaciones</th>
+                <th></th>
+            </tr>
+            </thead>
+            <tbody>
+            <?php foreach ($board as $row): ?>
+                <?php
+                $zone = $row['zone'];
+                $metrics = $row['metrics'];
+                $zoneStructureIssues = (int)$metrics['structure_issues'];
+                $zonePersonnelIssues = (int)$metrics['personnel_issues'];
+                ?>
+                <tr>
+                    <td>
+                        <span class="person-name"><?= h($zone['zone_number']) ?> - <?= h($zone['zone_label']) ?></span>
+                    </td>
+                    <td>
+                        <span class="badge <?= $zoneStructureIssues === 0 ? 'success' : 'warning' ?>">
+                            <?= $zoneStructureIssues === 0 ? 'Correcta' : 'Revisar' ?>
+                        </span>
+                    </td>
+                    <td>
+                        <?php if (!$hasDinsec): ?>
+                            <span class="badge neutral">No disponible</span>
+                        <?php else: ?>
+                            <span class="badge <?= $zonePersonnelIssues === 0 ? 'success' : 'warning' ?>">
+                                <?= $zonePersonnelIssues === 0 ? 'Vinculado' : 'Revisar' ?>
+                            </span>
+                        <?php endif; ?>
+                    </td>
+                    <td><?= h(format_number($metrics['total_issues'])) ?></td>
+                    <td><a class="button soft" href="trabajo_zonas.php?zona_id=<?= h($zone['id']) ?>">Abrir</a></td>
+                </tr>
+            <?php endforeach; ?>
+            </tbody>
+        </table>
+    </div>
+</section>
+
+<?php render_footer(); ?>
