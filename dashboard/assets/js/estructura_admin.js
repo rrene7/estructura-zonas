@@ -1,10 +1,35 @@
 (() => {
     const path = window.location.pathname.toLowerCase();
+    const configurationPages = [
+        '/configuracion.php',
+        '/estructura_admin.php',
+        '/configuracion_estructura_reglas.php',
+        '/configuracion_estructura_historial.php',
+    ];
+
+    if (configurationPages.some((page) => path.endsWith(page))) {
+        document.body.classList.add('configuration-page');
+    }
+
     if (!path.endsWith('/estructura_admin.php')) {
         return;
     }
 
     document.body.classList.add('admin-friendly-page');
+
+    const breadcrumbs = document.querySelector('.breadcrumbs');
+    if (breadcrumbs) {
+        const tabs = document.createElement('nav');
+        tabs.className = 'configuration-tabs';
+        tabs.setAttribute('aria-label', 'Configuración de estructura');
+        tabs.innerHTML = `
+            <a href="configuracion.php">Resumen</a>
+            <a href="estructura_admin.php" class="active">Estructura organizacional</a>
+            <a href="configuracion_estructura_reglas.php">Reglas de jerarquía</a>
+            <a href="configuracion_estructura_historial.php">Historial</a>
+        `;
+        breadcrumbs.insertAdjacentElement('afterend', tabs);
+    }
 
     const findPanel = (title) => Array.from(document.querySelectorAll('section.panel')).find((panel) => {
         const heading = panel.querySelector('.panel-header h2');
@@ -13,7 +38,7 @@
 
     const banner = document.querySelector('.admin-mode-banner');
     if (banner) {
-        banner.innerHTML = '<strong>Modo de edición</strong><span> Seleccione una unidad y elija la acción que desea realizar. Los registros históricos permanecen protegidos.</span>';
+        banner.innerHTML = '<strong>Configuración de estructura</strong><span> Seleccione una unidad y elija la acción que desea realizar. Las reglas y el historial se controlan desde MySQL.</span>';
     }
 
     const searchPanel = findPanel('Buscar dentro de la estructura');
@@ -23,7 +48,7 @@
         const input = searchPanel.querySelector('input[type="search"]');
 
         if (heading) {
-            heading.textContent = '¿Qué unidad deseas modificar?';
+            heading.textContent = '¿Qué unidad deseas configurar?';
         }
         if (description) {
             description.textContent = 'Escribe el nombre de una dirección, zona, área, estación, puesto o dependencia.';
@@ -94,7 +119,7 @@
     );
     renamePanel(
         historyPanel,
-        'Historial de cambios',
+        'Historial de la unidad',
         'Consulta quién modificó la unidad, cuándo lo hizo y qué cambió.'
     );
 
@@ -126,16 +151,16 @@
     actionMenu.className = 'panel admin-action-menu';
     actionMenu.innerHTML = `
         <div class="admin-action-menu-copy">
-            <span class="admin-step">Paso 2</span>
-            <h2>¿Qué deseas hacer?</h2>
-            <p>La información se muestra solo cuando seleccionas una opción.</p>
+            <span class="admin-step">Acciones disponibles</span>
+            <h2>¿Qué deseas configurar?</h2>
+            <p>La pantalla muestra únicamente el formulario de la acción seleccionada.</p>
         </div>
-        <div class="admin-action-buttons" role="group" aria-label="Acciones de administración">
+        <div class="admin-action-buttons" role="group" aria-label="Acciones de configuración">
             <button type="button" class="admin-action-button" data-admin-action="edit"><span>✎</span><strong>Editar datos</strong><small>Nombre, tipo y códigos</small></button>
             <button type="button" class="admin-action-button" data-admin-action="add"><span>＋</span><strong>Agregar</strong><small>Nueva dependencia</small></button>
             <button type="button" class="admin-action-button" data-admin-action="move"><span>↳</span><strong>Mover</strong><small>Cambiar unidad superior</small></button>
             <button type="button" class="admin-action-button" data-admin-action="status"><span>◉</span><strong>Estado</strong><small>Desactivar o reactivar</small></button>
-            <button type="button" class="admin-action-button" data-admin-action="history"><span>↺</span><strong>Historial</strong><small>Ver cambios anteriores</small></button>
+            <button type="button" class="admin-action-button" data-admin-action="history"><span>↺</span><strong>Historial</strong><small>Ver cambios de la unidad</small></button>
         </div>
     `;
 
@@ -174,10 +199,10 @@
         const heading = subordinatePanel.querySelector('.panel-header h2');
         const description = subordinatePanel.querySelector('.panel-header p');
         if (heading) {
-            heading.textContent = '¿Qué depende de esta unidad?';
+            heading.textContent = 'Dependencias de esta unidad';
         }
         if (description) {
-            description.textContent = 'Abre una dependencia para continuar navegando o editarla.';
+            description.textContent = 'Abre una dependencia para continuar navegando o configurarla.';
         }
     }
 })();
