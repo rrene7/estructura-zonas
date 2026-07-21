@@ -12,6 +12,12 @@ function render_header(string $title, string $active = 'inicio', string $subtitl
         'estructura' => ['Estructura', 'unidades.php?grupo=todas', '⌘'],
         'reportes' => ['Reportes', 'reportes.php', '⇩'],
     ];
+
+    $configurationActive = in_array(
+        $active,
+        ['configuracion', 'estructura_admin', 'configuracion_reglas', 'configuracion_historial'],
+        true
+    );
     ?>
     <!doctype html>
     <html lang="es">
@@ -21,7 +27,7 @@ function render_header(string $title, string $active = 'inicio', string $subtitl
         <meta name="color-scheme" content="light">
         <title><?= h($title) ?> | Pie de Fuerza</title>
         <link rel="stylesheet" href="assets/css/dashboard.css?v=20260717-1">
-        <link rel="stylesheet" href="assets/css/admin.css?v=20260717-2">
+        <link rel="stylesheet" href="assets/css/admin.css?v=20260721-1">
     </head>
     <body>
     <div class="app-shell">
@@ -48,9 +54,16 @@ function render_header(string $title, string $active = 'inicio', string $subtitl
                 <p>La unidad funcional, la zona donde presta servicio y la dependencia interna de cada funcionario.</p>
             </div>
 
-            <details class="technical-menu" <?= $active === 'estructura_admin' ? 'open' : '' ?>>
+            <details class="configuration-menu" <?= $configurationActive ? 'open' : '' ?>>
+                <summary>Configuración del sistema</summary>
+                <a href="configuracion.php" class="<?= $active === 'configuracion' ? 'active' : '' ?>">Panel de configuración</a>
+                <a href="estructura_admin.php" class="<?= $active === 'estructura_admin' ? 'active' : '' ?>">Estructura organizacional</a>
+                <a href="configuracion_estructura_reglas.php" class="<?= $active === 'configuracion_reglas' ? 'active' : '' ?>">Reglas de jerarquía</a>
+                <a href="configuracion_estructura_historial.php" class="<?= $active === 'configuracion_historial' ? 'active' : '' ?>">Historial de cambios</a>
+            </details>
+
+            <details class="technical-menu">
                 <summary>Herramientas técnicas</summary>
-                <a href="estructura_admin.php" class="<?= $active === 'estructura_admin' ? 'active' : '' ?>">Administrar estructura</a>
                 <a href="revision.php">Revisión de estructura</a>
                 <a href="trabajo_zonas.php">Trabajo por zona</a>
                 <a href="asignar_unidades_direccion.php">Unidades por dirección</a>
@@ -86,7 +99,7 @@ function render_footer(): void
         </div>
     </div>
     <script src="assets/js/dashboard.js?v=20260716-4"></script>
-    <script src="assets/js/estructura_admin.js?v=20260717-1"></script>
+    <script src="assets/js/estructura_admin.js?v=20260721-1"></script>
     </body>
     </html>
     <?php
