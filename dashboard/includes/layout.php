@@ -28,6 +28,7 @@ function render_header(string $title, string $active = 'inicio', string $subtitl
         <title><?= h($title) ?> | Pie de Fuerza</title>
         <link rel="stylesheet" href="assets/css/dashboard.css?v=20260717-1">
         <link rel="stylesheet" href="assets/css/admin.css?v=20260721-1">
+        <link rel="stylesheet" href="assets/css/configuration.css?v=20260721-1">
     </head>
     <body>
     <div class="app-shell">
