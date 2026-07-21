@@ -18,6 +18,11 @@ function render_header(string $title, string $active = 'inicio', string $subtitl
         ['configuracion', 'estructura_admin', 'configuracion_reglas', 'configuracion_historial'],
         true
     );
+    $technicalActive = in_array(
+        $active,
+        ['revision', 'trabajo_zonas', 'asignar_unidades_direccion'],
+        true
+    );
     ?>
     <!doctype html>
     <html lang="es">
@@ -63,11 +68,11 @@ function render_header(string $title, string $active = 'inicio', string $subtitl
                 <a href="configuracion_estructura_historial.php" class="<?= $active === 'configuracion_historial' ? 'active' : '' ?>">Historial de cambios</a>
             </details>
 
-            <details class="technical-menu">
+            <details class="technical-menu" <?= $technicalActive ? 'open' : '' ?>>
                 <summary>Herramientas técnicas</summary>
-                <a href="revision.php">Revisión de estructura</a>
-                <a href="trabajo_zonas.php">Trabajo por zona</a>
-                <a href="asignar_unidades_direccion.php">Unidades por dirección</a>
+                <a href="revision.php" class="<?= $active === 'revision' ? 'active' : '' ?>">Revisión de estructura</a>
+                <a href="trabajo_zonas.php" class="<?= $active === 'trabajo_zonas' ? 'active' : '' ?>">Revisión por zona</a>
+                <a href="asignar_unidades_direccion.php" class="<?= $active === 'asignar_unidades_direccion' ? 'active' : '' ?>">Unidades por dirección</a>
             </details>
         </aside>
 
