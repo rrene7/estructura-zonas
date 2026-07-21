@@ -12,18 +12,18 @@ if (empty($_SESSION['estructura_admin_csrf'])) {
     $_SESSION['estructura_admin_csrf'] = bin2hex(random_bytes(24));
 }
 
-$csrfToken = (string)$_SESSION['estructura_admin_csrf'];
-$selectedId = max(0, (int)($_GET['id'] ?? $_POST['unit_id'] ?? $_POST['parent_id'] ?? 0));
-$search = trim((string)($_GET['q'] ?? ''));
-$actionView = trim((string)($_GET['accion'] ?? ''));
-$group = trim((string)($_GET['grupo'] ?? $_POST['grupo'] ?? 'zonas'));
+$csrfToken = (string) $_SESSION['estructura_admin_csrf'];
+$selectedId = max(0, (int) ($_GET['id'] ?? $_POST['unit_id'] ?? $_POST['parent_id'] ?? 0));
+$search = trim((string) ($_GET['q'] ?? ''));
+$actionView = trim((string) ($_GET['accion'] ?? ''));
+$group = trim((string) ($_GET['grupo'] ?? $_POST['grupo'] ?? 'zonas'));
 $errorMessage = '';
 
 if (!in_array($group, ['zonas', 'direcciones', 'servicios'], true)) {
     $group = 'zonas';
 }
 
-function simple_structure_routine_exists(PDO $pdo, string $routineName): bool
+function structure_routine_exists(PDO $pdo, string $routineName): bool
 {
     $statement = $pdo->prepare(
         "SELECT COUNT(*) AS total
@@ -33,24 +33,26 @@ function simple_structure_routine_exists(PDO $pdo, string $routineName): bool
            AND ROUTINE_NAME = :routine_name"
     );
     $statement->execute(['routine_name' => $routineName]);
-    return (int)($statement->fetch()['total'] ?? 0) > 0;
+    return (int) ($statement->fetch()['total'] ?? 0) > 0;
 }
 
-function simple_structure_ready(PDO $pdo): bool
+function structure_database_ready(PDO $pdo): bool
 {
     if (!table_exists($pdo, 'vw_structure_admin_units')) {
         return false;
     }
 
-    foreach ([
+    $procedures = [
         'sp_structure_get_allowed_child_types',
         'sp_structure_create_root_unit',
         'sp_structure_create_unit',
         'sp_structure_update_unit',
         'sp_structure_deactivate_unit',
         'sp_structure_reactivate_unit',
-    ] as $procedureName) {
-        if (!simple_structure_routine_exists($pdo, $procedureName)) {
+    ];
+
+    foreach ($procedures as $procedureName) {
+        if (!structure_routine_exists($pdo, $procedureName)) {
             return false;
         }
     }
@@ -58,7 +60,7 @@ function simple_structure_ready(PDO $pdo): bool
     return true;
 }
 
-function simple_structure_call(PDO $pdo, string $procedureName, array $parameters = []): array
+function structure_call(PDO $pdo, string $procedureName, array $parameters = []): array
 {
     $allowed = [
         'sp_structure_get_allowed_child_types',
@@ -79,14 +81,14 @@ function simple_structure_call(PDO $pdo, string $procedureName, array $parameter
     $result = $statement->fetchAll();
 
     while ($statement->nextRowset()) {
-        // Liberar todos los resultados devueltos por MySQL.
+        // Consumir todos los resultados de MySQL.
     }
     $statement->closeCursor();
 
     return $result;
 }
 
-function simple_structure_error(Throwable $error): string
+function structure_error_message(Throwable $error): string
 {
     $message = trim($error->getMessage());
 
@@ -101,23 +103,29 @@ function simple_structure_error(Throwable $error): string
     return $message !== '' ? $message : 'No fue posible completar la operación.';
 }
 
-function simple_structure_is_protected(array $unit): bool
+function structure_group_label(string $group): string
 {
-    return (int)($unit['is_protected'] ?? 0) === 1;
+    if ($group === 'direcciones') {
+        return 'Direcciones';
+    }
+    if ($group === 'servicios') {
+        return 'Servicios';
+    }
+    return 'Zonas policiales';
 }
 
-function simple_structure_group_label(string $group): string
+function structure_is_active(array $unit): bool
 {
-    return match ($group) {
-        'direcciones' => 'Direcciones',
-        'servicios' => 'Servicios',
-        default => 'Zonas policiales',
-    };
+    return (string) ($unit['status'] ?? '') === 'active'
+        && (string) ($unit['lifecycle_status'] ?? '') === 'vigente';
 }
 
-$databaseReady = simple_structure_ready($pdo);
+function structure_is_protected(array $unit): bool
+{
+    return (int) ($unit['is_protected'] ?? 0) === 1;
+}
 
-if (!$databaseReady) {
+if (!structure_database_ready($pdo)) {
     render_header(
         'Configurar estructura',
         'estructura_admin',
@@ -137,29 +145,29 @@ if (!$databaseReady) {
 }
 
 if ($_SERVER['REQUEST_METHOD'] === 'POST') {
-    $submittedToken = (string)($_POST['csrf_token'] ?? '');
+    $submittedToken = (string) ($_POST['csrf_token'] ?? '');
 
     if (!hash_equals($csrfToken, $submittedToken)) {
         $errorMessage = 'La sesión del formulario venció. Recargue la página e intente nuevamente.';
     } else {
-        $postedAction = trim((string)($_POST['action'] ?? ''));
-        $unitId = max(0, (int)($_POST['unit_id'] ?? 0));
+        $postedAction = trim((string) ($_POST['action'] ?? ''));
+        $unitId = max(0, (int) ($_POST['unit_id'] ?? 0));
         $actor = 'administrador_local';
 
         try {
             if ($postedAction === 'create_root') {
-                $result = simple_structure_call($pdo, 'sp_structure_create_root_unit', [
-                    max(0, (int)($_POST['root_parent_id'] ?? 0)),
-                    max(0, (int)($_POST['unit_type_id'] ?? 0)),
-                    trim((string)($_POST['name'] ?? '')),
-                    trim((string)($_POST['short_name'] ?? '')),
-                    trim((string)($_POST['code'] ?? '')),
-                    trim((string)($_POST['moi_code'] ?? '')),
-                    trim((string)($_POST['notes'] ?? '')),
+                $result = structure_call($pdo, 'sp_structure_create_root_unit', [
+                    max(0, (int) ($_POST['root_parent_id'] ?? 0)),
+                    max(0, (int) ($_POST['unit_type_id'] ?? 0)),
+                    trim((string) ($_POST['name'] ?? '')),
+                    '',
+                    trim((string) ($_POST['code'] ?? '')),
+                    '',
+                    trim((string) ($_POST['notes'] ?? '')),
                     $actor,
                 ]);
 
-                $newUnitId = (int)($result[0]['unit_id'] ?? 0);
+                $newUnitId = (int) ($result[0]['unit_id'] ?? 0);
                 if ($newUnitId <= 0) {
                     throw new RuntimeException('MySQL no devolvió el identificador de la nueva unidad.');
                 }
@@ -169,14 +177,14 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             }
 
             if ($postedAction === 'update') {
-                simple_structure_call($pdo, 'sp_structure_update_unit', [
+                structure_call($pdo, 'sp_structure_update_unit', [
                     $unitId,
-                    max(0, (int)($_POST['unit_type_id'] ?? 0)),
-                    trim((string)($_POST['name'] ?? '')),
-                    trim((string)($_POST['short_name'] ?? '')),
-                    trim((string)($_POST['code'] ?? '')),
-                    trim((string)($_POST['moi_code'] ?? '')),
-                    trim((string)($_POST['notes'] ?? '')),
+                    max(0, (int) ($_POST['unit_type_id'] ?? 0)),
+                    trim((string) ($_POST['name'] ?? '')),
+                    trim((string) ($_POST['short_name'] ?? '')),
+                    trim((string) ($_POST['code'] ?? '')),
+                    trim((string) ($_POST['moi_code'] ?? '')),
+                    trim((string) ($_POST['notes'] ?? '')),
                     $actor,
                 ]);
 
@@ -185,19 +193,19 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             }
 
             if ($postedAction === 'create') {
-                $parentId = max(0, (int)($_POST['parent_id'] ?? 0));
-                $result = simple_structure_call($pdo, 'sp_structure_create_unit', [
+                $parentId = max(0, (int) ($_POST['parent_id'] ?? 0));
+                $result = structure_call($pdo, 'sp_structure_create_unit', [
                     $parentId,
-                    max(0, (int)($_POST['unit_type_id'] ?? 0)),
-                    trim((string)($_POST['name'] ?? '')),
-                    trim((string)($_POST['short_name'] ?? '')),
-                    trim((string)($_POST['code'] ?? '')),
-                    trim((string)($_POST['moi_code'] ?? '')),
-                    trim((string)($_POST['notes'] ?? '')),
+                    max(0, (int) ($_POST['unit_type_id'] ?? 0)),
+                    trim((string) ($_POST['name'] ?? '')),
+                    '',
+                    trim((string) ($_POST['code'] ?? '')),
+                    '',
+                    trim((string) ($_POST['notes'] ?? '')),
                     $actor,
                 ]);
 
-                $newUnitId = (int)($result[0]['unit_id'] ?? 0);
+                $newUnitId = (int) ($result[0]['unit_id'] ?? 0);
                 if ($newUnitId <= 0) {
                     throw new RuntimeException('MySQL no devolvió el identificador de la nueva dependencia.');
                 }
@@ -207,9 +215,9 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             }
 
             if ($postedAction === 'deactivate') {
-                simple_structure_call($pdo, 'sp_structure_deactivate_unit', [
+                structure_call($pdo, 'sp_structure_deactivate_unit', [
                     $unitId,
-                    trim((string)($_POST['notes'] ?? '')),
+                    trim((string) ($_POST['notes'] ?? '')),
                     $actor,
                 ]);
 
@@ -218,9 +226,9 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             }
 
             if ($postedAction === 'reactivate') {
-                simple_structure_call($pdo, 'sp_structure_reactivate_unit', [
+                structure_call($pdo, 'sp_structure_reactivate_unit', [
                     $unitId,
-                    trim((string)($_POST['notes'] ?? '')),
+                    trim((string) ($_POST['notes'] ?? '')),
                     $actor,
                 ]);
 
@@ -230,37 +238,39 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
 
             throw new RuntimeException('La acción solicitada no está disponible.');
         } catch (Throwable $error) {
-            $errorMessage = simple_structure_error($error);
+            $errorMessage = structure_error_message($error);
         }
     }
 }
 
 $unitTypes = rows($pdo, 'SELECT id, name, description FROM unit_types ORDER BY name');
+
+$rootTypeNames = [
+    'zonas' => ['zona_policial', 'region_policial'],
+    'direcciones' => ['direccion_nacional', 'subdireccion_nacional', 'directorio_general'],
+    'servicios' => ['servicio_policial', 'servicio_zonal'],
+];
+$rootTypeParams = $rootTypeNames[$group];
 $rootUnitTypes = rows(
     $pdo,
     "SELECT id, name, description
      FROM unit_types
-     WHERE name IN (
-        'zona_policial',
-        'region_policial',
-        'direccion_nacional',
-        'subdireccion_nacional',
-        'directorio_general',
-        'servicio_policial'
-     )
-     ORDER BY name"
+     WHERE name IN (:type_one, :type_two, :type_three)
+     ORDER BY name",
+    [
+        'type_one' => $rootTypeParams[0] ?? '',
+        'type_two' => $rootTypeParams[1] ?? '',
+        'type_three' => $rootTypeParams[2] ?? '',
+    ]
 );
+
 $rootParents = rows(
     $pdo,
-    "SELECT id, name, unit_type_name
+    "SELECT id, name
      FROM vw_structure_admin_units
      WHERE status = 'active'
        AND lifecycle_status = 'vigente'
-       AND (
-            parent_id IS NULL
-            OR COALESCE(level, 99) <= 1
-            OR unit_type_name IN ('institucion', 'directorio_general')
-       )
+       AND (parent_id IS NULL OR COALESCE(level, 99) <= 1)
      ORDER BY COALESCE(level, 99), name"
 );
 
@@ -291,19 +301,16 @@ $children = $selectedUnit
     : [];
 
 $allowedChildTypes = [];
-if ($selectedUnit
-    && !simple_structure_is_protected($selectedUnit)
-    && (string)$selectedUnit['status'] === 'active'
-    && (string)$selectedUnit['lifecycle_status'] === 'vigente') {
+if ($selectedUnit && !structure_is_protected($selectedUnit) && structure_is_active($selectedUnit)) {
     try {
-        $allowedChildTypes = simple_structure_call(
+        $allowedChildTypes = structure_call(
             $pdo,
             'sp_structure_get_allowed_child_types',
             [$selectedId]
         );
     } catch (Throwable $error) {
         if ($errorMessage === '') {
-            $errorMessage = simple_structure_error($error);
+            $errorMessage = structure_error_message($error);
         }
     }
 }
@@ -335,32 +342,29 @@ $principalUnits = rows(
 
 $breadcrumbs = [];
 if ($selectedUnit) {
-    $allUnits = rows(
-        $pdo,
-        'SELECT id, parent_id, name FROM vw_structure_admin_units ORDER BY id'
-    );
+    $allUnits = rows($pdo, 'SELECT id, parent_id, name FROM vw_structure_admin_units ORDER BY id');
     $lookup = [];
     foreach ($allUnits as $unitRow) {
-        $lookup[(int)$unitRow['id']] = $unitRow;
+        $lookup[(int) $unitRow['id']] = $unitRow;
     }
 
     $current = $selectedUnit;
     $seen = [];
     while ($current) {
-        $currentId = (int)$current['id'];
+        $currentId = (int) $current['id'];
         if ($currentId <= 0 || isset($seen[$currentId])) {
             break;
         }
 
         $seen[$currentId] = true;
         array_unshift($breadcrumbs, [
-            'label' => (string)$current['name'],
+            'label' => (string) $current['name'],
             'href' => $currentId === $selectedId
                 ? ''
                 : 'estructura_admin.php?id=' . $currentId . '&grupo=' . urlencode($group),
         ]);
 
-        $parentId = (int)($current['parent_id'] ?? 0);
+        $parentId = (int) ($current['parent_id'] ?? 0);
         $current = $parentId > 0 ? ($lookup[$parentId] ?? []) : [];
     }
 }
@@ -371,8 +375,8 @@ $successMessages = [
     'desactivada' => 'La unidad fue desactivada sin borrar su historial.',
     'reactivada' => 'La unidad fue reactivada.',
 ];
-$successKey = trim((string)($_GET['ok'] ?? ''));
-$protected = $selectedUnit ? simple_structure_is_protected($selectedUnit) : false;
+$successKey = trim((string) ($_GET['ok'] ?? ''));
+$protected = $selectedUnit ? structure_is_protected($selectedUnit) : false;
 
 render_header(
     'Configurar estructura',
@@ -383,7 +387,10 @@ render_breadcrumbs(array_merge(
     [
         ['label' => 'Inicio', 'href' => 'index.php'],
         ['label' => 'Configuración del sistema', 'href' => 'configuracion.php'],
-        ['label' => 'Estructura organizacional', 'href' => $selectedUnit ? 'estructura_admin.php?grupo=' . urlencode($group) : ''],
+        [
+            'label' => 'Estructura organizacional',
+            'href' => $selectedUnit ? 'estructura_admin.php?grupo=' . urlencode($group) : '',
+        ],
     ],
     $breadcrumbs
 ));
@@ -392,7 +399,7 @@ render_breadcrumbs(array_merge(
 <div data-simple-structure class="simple-structure-page">
     <div class="notice info">
         <strong>Administración sencilla.</strong>
-        “Desactivar” reemplaza a eliminar: la unidad deja de usarse, pero no se borra su historial ni sus relaciones.
+        Desactivar reemplaza a eliminar: la unidad deja de usarse, pero conserva su historial.
     </div>
 
     <?php if ($errorMessage !== ''): ?>
@@ -414,8 +421,8 @@ render_breadcrumbs(array_merge(
             <section class="panel simple-structure-form">
                 <div class="panel-header">
                     <div>
-                        <h2>Agregar zona, dirección o servicio</h2>
-                        <p>Complete solamente el nombre, el tipo y el código.</p>
+                        <h2>Agregar <?= h(strtolower(structure_group_label($group))) ?></h2>
+                        <p>Complete el nombre, el tipo y el código.</p>
                     </div>
                     <a class="button" href="estructura_admin.php?grupo=<?= h($group) ?>">Cancelar</a>
                 </div>
@@ -423,28 +430,26 @@ render_breadcrumbs(array_merge(
                     <input type="hidden" name="csrf_token" value="<?= h($csrfToken) ?>">
                     <input type="hidden" name="action" value="create_root">
                     <input type="hidden" name="grupo" value="<?= h($group) ?>">
-                    <input type="hidden" name="short_name" value="">
-                    <input type="hidden" name="moi_code" value="">
 
                     <div class="field admin-span-2">
                         <label>Nombre</label>
-                        <input name="name" required placeholder="Ejemplo: Zona Policial de Chiriquí">
+                        <input name="name" required placeholder="Escriba el nombre oficial">
                     </div>
                     <div class="field">
                         <label>Tipo</label>
                         <select name="unit_type_id" required>
                             <option value="">Seleccione</option>
                             <?php foreach ($rootUnitTypes as $type): ?>
-                                <option value="<?= h($type['id']) ?>"><?= h(ucwords(str_replace('_', ' ', (string)$type['name']))) ?></option>
+                                <option value="<?= h($type['id']) ?>"><?= h(ucwords(str_replace('_', ' ', (string) $type['name']))) ?></option>
                             <?php endforeach; ?>
                         </select>
                     </div>
                     <div class="field">
                         <label>Código</label>
-                        <input name="code" placeholder="Ejemplo: Z04">
+                        <input name="code" placeholder="Opcional">
                     </div>
                     <div class="field admin-span-2">
-                        <label>Unidad superior <span class="subtext">Opcional</span></label>
+                        <label>Unidad superior</label>
                         <select name="root_parent_id">
                             <option value="0">Nivel principal</option>
                             <?php foreach ($rootParents as $parent): ?>
@@ -454,10 +459,10 @@ render_breadcrumbs(array_merge(
                     </div>
                     <div class="field admin-span-2">
                         <label>Motivo</label>
-                        <input name="notes" placeholder="Ejemplo: nueva estructura aprobada">
+                        <input name="notes" placeholder="Explique brevemente la creación">
                     </div>
                     <div class="admin-span-2">
-                        <button class="button primary" type="submit">Agregar unidad</button>
+                        <button class="button primary" type="submit">Agregar</button>
                     </div>
                 </form>
             </section>
@@ -465,8 +470,8 @@ render_breadcrumbs(array_merge(
             <section class="panel">
                 <div class="panel-header">
                     <div>
-                        <h2><?= h(simple_structure_group_label($group)) ?></h2>
-                        <p>Seleccione una unidad para ver y administrar lo que depende de ella.</p>
+                        <h2><?= h(structure_group_label($group)) ?></h2>
+                        <p>Abra una unidad para administrarla y ver lo que contiene.</p>
                     </div>
                     <a class="button primary" href="estructura_admin.php?grupo=<?= h($group) ?>&accion=agregar_principal">Agregar</a>
                 </div>
@@ -488,14 +493,11 @@ render_breadcrumbs(array_merge(
                             <article class="simple-structure-row card">
                                 <div>
                                     <h3><?= h($unit['name']) ?></h3>
-                                    <p>
-                                        <?= h(ucwords(str_replace('_', ' ', (string)$unit['unit_type_name']))) ?>
-                                        <?= !empty($unit['code']) ? ' · ' . h($unit['code']) : '' ?>
-                                    </p>
+                                    <p><?= h(ucwords(str_replace('_', ' ', (string) $unit['unit_type_name']))) ?><?= !empty($unit['code']) ? ' · ' . h($unit['code']) : '' ?></p>
                                 </div>
                                 <div class="simple-structure-row-actions">
-                                    <span class="badge <?= (string)$unit['status'] === 'active' && (string)$unit['lifecycle_status'] === 'vigente' ? 'success' : 'warning' ?>">
-                                        <?= (string)$unit['status'] === 'active' && (string)$unit['lifecycle_status'] === 'vigente' ? 'Activa' : 'Inactiva' ?>
+                                    <span class="badge <?= structure_is_active($unit) ? 'success' : 'warning' ?>">
+                                        <?= structure_is_active($unit) ? 'Activa' : 'Inactiva' ?>
                                     </span>
                                     <span class="simple-child-count"><?= h(format_number($unit['child_count'])) ?> dependencias</span>
                                     <a class="button soft" href="estructura_admin.php?id=<?= h($unit['id']) ?>&grupo=<?= h($group) ?>">Abrir</a>
@@ -512,11 +514,11 @@ render_breadcrumbs(array_merge(
         <section class="panel simple-selected-unit">
             <div class="page-intro">
                 <div>
-                    <span class="badge <?= (string)$selectedUnit['status'] === 'active' && (string)$selectedUnit['lifecycle_status'] === 'vigente' ? 'success' : 'warning' ?>">
-                        <?= (string)$selectedUnit['status'] === 'active' && (string)$selectedUnit['lifecycle_status'] === 'vigente' ? 'Activa' : 'Inactiva' ?>
+                    <span class="badge <?= structure_is_active($selectedUnit) ? 'success' : 'warning' ?>">
+                        <?= structure_is_active($selectedUnit) ? 'Activa' : 'Inactiva' ?>
                     </span>
                     <h2><?= h($selectedUnit['name']) ?></h2>
-                    <p><?= h(ucwords(str_replace('_', ' ', (string)$selectedUnit['unit_type_name']))) ?><?= !empty($selectedUnit['code']) ? ' · ' . h($selectedUnit['code']) : '' ?></p>
+                    <p><?= h(ucwords(str_replace('_', ' ', (string) $selectedUnit['unit_type_name']))) ?><?= !empty($selectedUnit['code']) ? ' · ' . h($selectedUnit['code']) : '' ?></p>
                 </div>
                 <div class="button-row">
                     <?php if (!empty($selectedUnit['parent_id'])): ?>
@@ -528,17 +530,15 @@ render_breadcrumbs(array_merge(
             </div>
 
             <?php if ($protected): ?>
-                <div class="notice warning">
-                    Este es un registro heredado protegido. Puede consultarlo, pero no modificarlo.
-                </div>
+                <div class="notice warning">Este registro heredado está protegido y no puede modificarse.</div>
             <?php else: ?>
                 <div class="simple-structure-actions">
                     <a class="button <?= $actionView === 'editar' ? 'primary' : '' ?>" href="estructura_admin.php?id=<?= h($selectedId) ?>&grupo=<?= h($group) ?>&accion=editar">Editar</a>
-                    <?php if ((string)$selectedUnit['status'] === 'active' && (string)$selectedUnit['lifecycle_status'] === 'vigente'): ?>
+                    <?php if (structure_is_active($selectedUnit)): ?>
                         <a class="button <?= $actionView === 'agregar' ? 'primary' : '' ?>" href="estructura_admin.php?id=<?= h($selectedId) ?>&grupo=<?= h($group) ?>&accion=agregar">Agregar dependencia</a>
                     <?php endif; ?>
                     <a class="button <?= $actionView === 'estado' ? 'danger' : '' ?>" href="estructura_admin.php?id=<?= h($selectedId) ?>&grupo=<?= h($group) ?>&accion=estado">
-                        <?= (string)$selectedUnit['status'] === 'active' ? 'Desactivar' : 'Reactivar' ?>
+                        <?= structure_is_active($selectedUnit) ? 'Desactivar' : 'Reactivar' ?>
                     </a>
                 </div>
             <?php endif; ?>
@@ -547,10 +547,7 @@ render_breadcrumbs(array_merge(
         <?php if (!$protected && $actionView === 'editar'): ?>
             <section class="panel simple-structure-form">
                 <div class="panel-header">
-                    <div>
-                        <h2>Editar unidad</h2>
-                        <p>Cambie únicamente los datos necesarios.</p>
-                    </div>
+                    <div><h2>Editar unidad</h2><p>Cambie únicamente los datos necesarios.</p></div>
                     <a class="button" href="estructura_admin.php?id=<?= h($selectedId) ?>&grupo=<?= h($group) ?>">Cancelar</a>
                 </div>
                 <form method="post" class="admin-form-grid">
@@ -561,40 +558,26 @@ render_breadcrumbs(array_merge(
                     <input type="hidden" name="short_name" value="<?= h($selectedUnit['short_name']) ?>">
                     <input type="hidden" name="moi_code" value="<?= h($selectedUnit['moi_code']) ?>">
 
-                    <div class="field admin-span-2">
-                        <label>Nombre</label>
-                        <input name="name" value="<?= h($selectedUnit['name']) ?>" required>
-                    </div>
+                    <div class="field admin-span-2"><label>Nombre</label><input name="name" value="<?= h($selectedUnit['name']) ?>" required></div>
                     <div class="field">
                         <label>Tipo</label>
                         <select name="unit_type_id" required>
                             <?php foreach ($unitTypes as $type): ?>
-                                <option value="<?= h($type['id']) ?>" <?= (int)$selectedUnit['unit_type_id'] === (int)$type['id'] ? 'selected' : '' ?>><?= h(ucwords(str_replace('_', ' ', (string)$type['name']))) ?></option>
+                                <option value="<?= h($type['id']) ?>" <?= (int) $selectedUnit['unit_type_id'] === (int) $type['id'] ? 'selected' : '' ?>><?= h(ucwords(str_replace('_', ' ', (string) $type['name']))) ?></option>
                             <?php endforeach; ?>
                         </select>
                     </div>
-                    <div class="field">
-                        <label>Código</label>
-                        <input name="code" value="<?= h($selectedUnit['code']) ?>">
-                    </div>
-                    <div class="field admin-span-2">
-                        <label>Motivo</label>
-                        <input name="notes" placeholder="Ejemplo: corrección de nombre">
-                    </div>
-                    <div class="admin-span-2">
-                        <button class="button primary" type="submit">Guardar cambios</button>
-                    </div>
+                    <div class="field"><label>Código</label><input name="code" value="<?= h($selectedUnit['code']) ?>"></div>
+                    <div class="field admin-span-2"><label>Motivo</label><input name="notes" placeholder="Ejemplo: corrección de nombre"></div>
+                    <div class="admin-span-2"><button class="button primary" type="submit">Guardar cambios</button></div>
                 </form>
             </section>
         <?php endif; ?>
 
-        <?php if (!$protected && $actionView === 'agregar' && (string)$selectedUnit['status'] === 'active'): ?>
+        <?php if (!$protected && $actionView === 'agregar' && structure_is_active($selectedUnit)): ?>
             <section class="panel simple-structure-form">
                 <div class="panel-header">
-                    <div>
-                        <h2>Agregar dentro de <?= h($selectedUnit['name']) ?></h2>
-                        <p>Puede agregar un área, sección, servicio, oficina, estación u otro tipo permitido.</p>
-                    </div>
+                    <div><h2>Agregar dentro de <?= h($selectedUnit['name']) ?></h2><p>Seleccione el tipo de dependencia.</p></div>
                     <a class="button" href="estructura_admin.php?id=<?= h($selectedId) ?>&grupo=<?= h($group) ?>">Cancelar</a>
                 </div>
                 <form method="post" class="admin-form-grid">
@@ -602,33 +585,20 @@ render_breadcrumbs(array_merge(
                     <input type="hidden" name="action" value="create">
                     <input type="hidden" name="parent_id" value="<?= h($selectedId) ?>">
                     <input type="hidden" name="grupo" value="<?= h($group) ?>">
-                    <input type="hidden" name="short_name" value="">
-                    <input type="hidden" name="moi_code" value="">
 
-                    <div class="field admin-span-2">
-                        <label>Nombre</label>
-                        <input name="name" required placeholder="Ejemplo: Área A, Sección de Operaciones o Servicio Policial">
-                    </div>
+                    <div class="field admin-span-2"><label>Nombre</label><input name="name" required placeholder="Ejemplo: Área A o Sección de Operaciones"></div>
                     <div class="field">
                         <label>Tipo</label>
                         <select name="unit_type_id" required>
                             <option value="">Seleccione</option>
                             <?php foreach ($allowedChildTypes as $type): ?>
-                                <option value="<?= h($type['id']) ?>"><?= h(ucwords(str_replace('_', ' ', (string)$type['name']))) ?></option>
+                                <option value="<?= h($type['id']) ?>"><?= h(ucwords(str_replace('_', ' ', (string) $type['name']))) ?></option>
                             <?php endforeach; ?>
                         </select>
                     </div>
-                    <div class="field">
-                        <label>Código</label>
-                        <input name="code" placeholder="Opcional">
-                    </div>
-                    <div class="field admin-span-2">
-                        <label>Motivo</label>
-                        <input name="notes" placeholder="Ejemplo: nueva dependencia aprobada">
-                    </div>
-                    <div class="admin-span-2">
-                        <button class="button primary" type="submit">Agregar dependencia</button>
-                    </div>
+                    <div class="field"><label>Código</label><input name="code" placeholder="Opcional"></div>
+                    <div class="field admin-span-2"><label>Motivo</label><input name="notes" placeholder="Explique brevemente la creación"></div>
+                    <div class="admin-span-2"><button class="button primary" type="submit">Agregar dependencia</button></div>
                 </form>
             </section>
         <?php endif; ?>
@@ -637,31 +607,20 @@ render_breadcrumbs(array_merge(
             <section class="panel simple-structure-form">
                 <div class="panel-header">
                     <div>
-                        <h2><?= (string)$selectedUnit['status'] === 'active' ? 'Desactivar unidad' : 'Reactivar unidad' ?></h2>
-                        <p>
-                            <?= (string)$selectedUnit['status'] === 'active'
-                                ? 'No se borra. Dejará de aparecer como unidad vigente.'
-                                : 'La unidad volverá a estar disponible.' ?>
-                        </p>
+                        <h2><?= structure_is_active($selectedUnit) ? 'Desactivar unidad' : 'Reactivar unidad' ?></h2>
+                        <p><?= structure_is_active($selectedUnit) ? 'La unidad no se borrará; dejará de estar vigente.' : 'La unidad volverá a estar disponible.' ?></p>
                     </div>
                     <a class="button" href="estructura_admin.php?id=<?= h($selectedId) ?>&grupo=<?= h($group) ?>">Cancelar</a>
                 </div>
                 <form method="post" class="admin-form-grid">
                     <input type="hidden" name="csrf_token" value="<?= h($csrfToken) ?>">
-                    <input type="hidden" name="action" value="<?= (string)$selectedUnit['status'] === 'active' ? 'deactivate' : 'reactivate' ?>">
+                    <input type="hidden" name="action" value="<?= structure_is_active($selectedUnit) ? 'deactivate' : 'reactivate' ?>">
                     <input type="hidden" name="unit_id" value="<?= h($selectedId) ?>">
                     <input type="hidden" name="grupo" value="<?= h($group) ?>">
-                    <div class="field admin-span-2">
-                        <label>Motivo</label>
-                        <input name="notes" required placeholder="Explique brevemente la razón">
-                    </div>
+                    <div class="field admin-span-2"><label>Motivo</label><input name="notes" required placeholder="Explique brevemente la razón"></div>
                     <div class="admin-span-2">
-                        <button
-                            class="button <?= (string)$selectedUnit['status'] === 'active' ? 'danger' : 'primary' ?>"
-                            type="submit"
-                            data-confirm="¿Confirma este cambio de estado?"
-                        >
-                            <?= (string)$selectedUnit['status'] === 'active' ? 'Desactivar' : 'Reactivar' ?>
+                        <button class="button <?= structure_is_active($selectedUnit) ? 'danger' : 'primary' ?>" type="submit" data-confirm="¿Confirma este cambio de estado?">
+                            <?= structure_is_active($selectedUnit) ? 'Desactivar' : 'Reactivar' ?>
                         </button>
                     </div>
                 </form>
@@ -670,11 +629,8 @@ render_breadcrumbs(array_merge(
 
         <section class="panel">
             <div class="panel-header">
-                <div>
-                    <h2>Contenido de esta unidad</h2>
-                    <p>Abra un elemento para editarlo, agregar algo dentro o desactivarlo.</p>
-                </div>
-                <?php if (!$protected && (string)$selectedUnit['status'] === 'active': ?>
+                <div><h2>Contenido de esta unidad</h2><p>Abra un elemento para administrarlo.</p></div>
+                <?php if (!$protected && structure_is_active($selectedUnit)): ?>
                     <a class="button primary" href="estructura_admin.php?id=<?= h($selectedId) ?>&grupo=<?= h($group) ?>&accion=agregar">Agregar dependencia</a>
                 <?php endif; ?>
             </div>
@@ -687,15 +643,10 @@ render_breadcrumbs(array_merge(
                         <article class="simple-structure-row card">
                             <div>
                                 <h3><?= h($child['name']) ?></h3>
-                                <p>
-                                    <?= h(ucwords(str_replace('_', ' ', (string)$child['unit_type_name']))) ?>
-                                    <?= !empty($child['code']) ? ' · ' . h($child['code']) : '' ?>
-                                </p>
+                                <p><?= h(ucwords(str_replace('_', ' ', (string) $child['unit_type_name']))) ?><?= !empty($child['code']) ? ' · ' . h($child['code']) : '' ?></p>
                             </div>
                             <div class="simple-structure-row-actions">
-                                <span class="badge <?= (string)$child['status'] === 'active' && (string)$child['lifecycle_status'] === 'vigente' ? 'success' : 'warning' ?>">
-                                    <?= (string)$child['status'] === 'active' && (string)$child['lifecycle_status'] === 'vigente' ? 'Activa' : 'Inactiva' ?>
-                                </span>
+                                <span class="badge <?= structure_is_active($child) ? 'success' : 'warning' ?>"><?= structure_is_active($child) ? 'Activa' : 'Inactiva' ?></span>
                                 <span class="simple-child-count"><?= h(format_number($child['child_count'])) ?> dentro</span>
                                 <a class="button soft" href="estructura_admin.php?id=<?= h($child['id']) ?>&grupo=<?= h($group) ?>">Abrir</a>
                             </div>
