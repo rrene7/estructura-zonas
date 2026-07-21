@@ -71,7 +71,7 @@ function render_header(string $title, string $active = 'inicio', string $subtitl
             <details class="technical-menu" <?= $technicalActive ? 'open' : '' ?>>
                 <summary>Herramientas técnicas</summary>
                 <a href="revision.php" class="<?= $active === 'revision' ? 'active' : '' ?>">Revisión de estructura</a>
-                <a href="trabajo_zonas.php" class="<?= $active === 'trabajo_zonas' ? 'active' : '' ?>">Revisión por zona</a>
+                <a href="trabajo_zonas.php" class="<?= $active === 'trabajo_zonas' ? 'active' : '' ?>">Estado de zonas</a>
                 <a href="asignar_unidades_direccion.php" class="<?= $active === 'asignar_unidades_direccion' ? 'active' : '' ?>">Unidades por dirección</a>
             </details>
         </aside>
