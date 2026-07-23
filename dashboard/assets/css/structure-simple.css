@@ -68,6 +68,31 @@
     margin-top: 9px;
 }
 
+.identifier-summary {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px;
+    margin-top: 12px;
+}
+
+.identifier-summary span {
+    display: inline-flex;
+    gap: 5px;
+    align-items: center;
+    padding: 7px 10px;
+    border: 1px solid #cbd8e8;
+    border-radius: 9px;
+    background: #f5f8fc;
+    color: #36536f;
+    font-size: .76rem;
+}
+
+.identifier-summary span:first-child {
+    border-color: #8da9cc;
+    background: #edf4fb;
+    color: #173f67;
+}
+
 .simple-structure-actions {
     display: flex;
     flex-wrap: wrap;
@@ -147,5 +172,13 @@
 
     .simple-structure-actions .button {
         flex: 1 1 100%;
+    }
+
+    .identifier-summary {
+        flex-direction: column;
+    }
+
+    .identifier-summary span {
+        width: 100%;
     }
 }
