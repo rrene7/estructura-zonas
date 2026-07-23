@@ -63,7 +63,7 @@ SELECT
         FROM organizational_units child
         WHERE child.parent_id = unit.id
           AND UPPER(TRIM(COALESCE(child.legacy_table, ''))) <> 'TABCUAR'
-          AND child.structure_source <> 'legacy'
+          AND COALESCE(child.structure_source, '') <> 'legacy'
     ) AS child_count,
     (
         SELECT COUNT(*)
@@ -72,7 +72,7 @@ SELECT
           AND child.status = 'active'
           AND child.lifecycle_status = 'vigente'
           AND UPPER(TRIM(COALESCE(child.legacy_table, ''))) <> 'TABCUAR'
-          AND child.structure_source <> 'legacy'
+          AND COALESCE(child.structure_source, '') <> 'legacy'
     ) AS active_child_count,
     (
         SELECT COUNT(*)
@@ -85,7 +85,7 @@ JOIN unit_types unit_type
 LEFT JOIN organizational_units parent
   ON parent.id = unit.parent_id
 WHERE UPPER(TRIM(COALESCE(unit.legacy_table, ''))) <> 'TABCUAR'
-  AND unit.structure_source <> 'legacy';
+  AND COALESCE(unit.structure_source, '') <> 'legacy';
 
 SELECT
     COUNT(*) AS unidades_visibles_configuracion,
@@ -98,4 +98,4 @@ SELECT
     COUNT(*) AS registros_heredados_ocultos
 FROM organizational_units unit
 WHERE UPPER(TRIM(COALESCE(unit.legacy_table, ''))) = 'TABCUAR'
-   OR unit.structure_source = 'legacy';
+   OR COALESCE(unit.structure_source, '') = 'legacy';
