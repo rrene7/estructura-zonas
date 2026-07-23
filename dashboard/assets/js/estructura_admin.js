@@ -44,6 +44,131 @@
         preview.value = `${zoneNumber} Zona Policial - ${zoneDescription}`;
     };
 
+    const buildPrincipalName = (group, value) => {
+        const cleanValue = String(value || '').trim();
+        const normalized = cleanValue.toLowerCase();
+
+        if (group === 'direcciones') {
+            if (normalized.startsWith('dirección nacional') || normalized.startsWith('direccion nacional')) {
+                return cleanValue;
+            }
+            return `Dirección Nacional de ${cleanValue || '__________________'}`;
+        }
+
+        if (group === 'servicios') {
+            if (normalized.startsWith('servicio')) {
+                return cleanValue;
+            }
+            return `Servicio Policial - ${cleanValue || '__________________'}`;
+        }
+
+        return cleanValue;
+    };
+
+    const configurePrincipalForm = (form) => {
+        const group = form.dataset.group || '';
+        const typeSelect = form.querySelector('[data-code-type]');
+        const expectedType = {
+            zonas: 'zona_policial',
+            direcciones: 'direccion_nacional',
+            servicios: 'servicio_policial',
+        }[group] || '';
+
+        if (typeSelect && expectedType) {
+            const matchingOption = Array.from(typeSelect.options).find(
+                (option) => option.dataset.typeName === expectedType
+            );
+
+            if (matchingOption) {
+                typeSelect.value = matchingOption.value;
+
+                const originalField = typeSelect.closest('.field');
+                if (originalField) {
+                    originalField.hidden = true;
+
+                    const visibleTypeField = document.createElement('div');
+                    visibleTypeField.className = 'field';
+                    visibleTypeField.dataset.automaticTypeField = 'true';
+                    visibleTypeField.innerHTML = `
+                        <label>Tipo</label>
+                        <input class="system-readonly" value="${matchingOption.textContent.trim()}" readonly>
+                    `;
+                    originalField.insertAdjacentElement('afterend', visibleTypeField);
+                }
+            }
+        }
+
+        updateCodePreview(form);
+
+        if (group === 'zonas') {
+            updateZoneName(form);
+            return;
+        }
+
+        const nameInput = form.querySelector('input[name="name"]');
+        if (!nameInput) {
+            return;
+        }
+
+        const nameField = nameInput.closest('.field');
+        const label = nameField?.querySelector('label');
+        if (label) {
+            label.textContent = group === 'direcciones'
+                ? 'Nombre o especialidad de la dirección'
+                : 'Nombre o especialidad del servicio';
+        }
+
+        nameInput.placeholder = group === 'direcciones'
+            ? 'Ejemplo: Telemática'
+            : 'Ejemplo: Motorizado';
+
+        const previewField = document.createElement('div');
+        previewField.className = 'field admin-span-2';
+        previewField.innerHTML = `
+            <label>Nombre que se guardará</label>
+            <input class="system-readonly" data-principal-name-preview readonly>
+        `;
+        nameField?.insertAdjacentElement('afterend', previewField);
+
+        const previewInput = previewField.querySelector('[data-principal-name-preview]');
+        const refreshName = () => {
+            if (previewInput) {
+                previewInput.value = buildPrincipalName(group, nameInput.value);
+            }
+        };
+
+        nameInput.addEventListener('input', refreshName);
+        refreshName();
+
+        form.addEventListener('submit', () => {
+            nameInput.value = buildPrincipalName(group, nameInput.value);
+        });
+    };
+
+    const protectMissingParent = (form) => {
+        const parentField = Array.from(form.querySelectorAll('.field')).find((field) =>
+            field.querySelector('label')?.textContent?.trim() === 'Unidad superior'
+        );
+        const parentInput = parentField?.querySelector('input[readonly]');
+        const submitButton = form.querySelector('button[type="submit"]');
+
+        if (!parentInput || !submitButton) {
+            return;
+        }
+
+        const parentName = parentInput.value.trim().toLowerCase();
+        const missing = parentName === '' || parentName === 'nivel principal';
+        if (!missing) {
+            return;
+        }
+
+        submitButton.disabled = true;
+        const warning = document.createElement('div');
+        warning.className = 'notice warning admin-span-2';
+        warning.textContent = 'No se encontró la unidad superior oficial. Debe instalarse o corregirse la configuración automática antes de guardar.';
+        submitButton.closest('.admin-span-2')?.appendChild(warning);
+    };
+
     const buildChildName = (typeName, label, description) => {
         const type = (typeName || '').toLowerCase();
         const cleanLabel = (label || '').trim().toUpperCase();
@@ -179,8 +304,8 @@
         zoneNumber?.addEventListener('input', () => updateZoneName(form));
         zoneDescription?.addEventListener('input', () => updateZoneName(form));
 
-        updateCodePreview(form);
-        updateZoneName(form);
+        configurePrincipalForm(form);
+        protectMissingParent(form);
     });
 
     document.querySelectorAll('[data-guided-child-form]').forEach((form) => {
