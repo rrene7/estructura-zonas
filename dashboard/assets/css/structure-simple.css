@@ -92,6 +92,35 @@
     margin-left: 5px;
 }
 
+.automatic-code-field {
+    align-self: stretch;
+}
+
+.automatic-code-note {
+    min-height: 48px;
+    display: flex;
+    align-items: center;
+    padding: 11px 13px;
+    border: 1px dashed #8da9cc;
+    border-radius: 11px;
+    background: #f3f7fc;
+    color: #36536f;
+    font-size: .82rem;
+    line-height: 1.4;
+}
+
+.simple-structure-page input[readonly] {
+    background: #f3f5f8;
+    color: #435468;
+    cursor: not-allowed;
+}
+
+.automatic-code-help {
+    display: block !important;
+    margin: 7px 0 0 !important;
+    line-height: 1.35;
+}
+
 @media (max-width: 760px) {
     .simple-structure-row {
         align-items: flex-start;
