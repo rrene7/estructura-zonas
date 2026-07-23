@@ -106,7 +106,7 @@ function render_footer(): void
         </div>
     </div>
     <script src="assets/js/dashboard.js?v=20260716-4"></script>
-    <script src="assets/js/estructura_admin.js?v=20260723-3"></script>
+    <script src="assets/js/estructura_admin.js?v=20260723-4"></script>
     </body>
     </html>
     <?php
