@@ -20,45 +20,118 @@
         return;
     }
 
-    document.querySelectorAll('form').forEach((form) => {
-        const action = form.querySelector('input[name="action"]')?.value || '';
-        const codeInput = form.querySelector('input[name="code"]');
-
-        if (!codeInput) {
+    const updateCodePreview = (form) => {
+        const select = form.querySelector('[data-code-type]');
+        const preview = form.querySelector('[data-code-preview]');
+        if (!select || !preview) {
             return;
         }
 
-        const field = codeInput.closest('.field');
-        const label = field?.querySelector('label');
+        const option = select.options[select.selectedIndex];
+        preview.value = option?.dataset.nextCode || 'Se asignará al guardar';
+    };
 
-        if (action === 'create' || action === 'create_root') {
-            codeInput.value = '';
-            codeInput.type = 'hidden';
-
-            if (field) {
-                field.classList.add('automatic-code-field');
-                field.innerHTML = `
-                    <label>Código del sistema</label>
-                    <div class="automatic-code-note">
-                        Se generará automáticamente al guardar. No podrá repetirse ni reutilizarse.
-                    </div>
-                    <input type="hidden" name="code" value="">
-                `;
-            }
+    const updateZoneName = (form) => {
+        const number = form.querySelector('[data-zone-number]');
+        const description = form.querySelector('[data-zone-description]');
+        const preview = form.querySelector('[data-name-preview]');
+        if (!number || !description || !preview) {
             return;
         }
 
-        if (action === 'update') {
-            codeInput.readOnly = true;
-            codeInput.setAttribute('aria-readonly', 'true');
-            if (label) {
-                label.textContent = 'Código del sistema';
-            }
+        const zoneNumber = number.value.trim() || '__';
+        const zoneDescription = description.value.trim() || '__________________';
+        preview.value = `${zoneNumber} Zona Policial - ${zoneDescription}`;
+    };
 
-            const note = document.createElement('span');
-            note.className = 'subtext automatic-code-help';
-            note.textContent = 'Este código es permanente y no se puede cambiar ni reutilizar.';
-            field?.appendChild(note);
+    const buildChildName = (typeName, label, description) => {
+        const type = (typeName || '').toLowerCase();
+        const cleanLabel = (label || '').trim().toUpperCase();
+        const cleanDescription = (description || '').trim();
+
+        if (type.includes('area')) {
+            return `Área ${cleanLabel || '_'}${cleanDescription ? ` - ${cleanDescription}` : ''}`;
         }
+        if (type.includes('seccion')) {
+            return `Sección de ${cleanDescription || '__________________'}`;
+        }
+        if (type.includes('servicio')) {
+            return `Servicio ${cleanDescription || '__________________'}`;
+        }
+        if (type.includes('departamento')) {
+            return `Departamento de ${cleanDescription || '__________________'}`;
+        }
+        if (type.includes('oficina')) {
+            return `Oficina de ${cleanDescription || '__________________'}`;
+        }
+        if (type.includes('subestacion')) {
+            return `Subestación Policial de ${cleanDescription || '__________________'}`;
+        }
+        if (type.includes('estacion')) {
+            return `Estación Policial de ${cleanDescription || '__________________'}`;
+        }
+        if (type.includes('sector')) {
+            return `Sector ${cleanDescription || '__________________'}`;
+        }
+        if (type.includes('puesto')) {
+            return `Puesto Policial de ${cleanDescription || '__________________'}`;
+        }
+        return cleanDescription || 'Escriba la descripción';
+    };
+
+    const updateChildName = (form) => {
+        const select = form.querySelector('[data-guided-type]');
+        const labelField = form.querySelector('[data-label-field]');
+        const labelInput = form.querySelector('[data-unit-label]');
+        const description = form.querySelector('[data-unit-description]');
+        const preview = form.querySelector('[data-name-preview]');
+        if (!select || !description || !preview) {
+            return;
+        }
+
+        const option = select.options[select.selectedIndex];
+        const typeName = option?.dataset.typeName || '';
+        const isArea = typeName.toLowerCase().includes('area');
+
+        if (labelField) {
+            labelField.hidden = !isArea;
+        }
+        if (labelInput) {
+            labelInput.required = isArea;
+            if (!isArea) {
+                labelInput.value = '';
+            }
+        }
+
+        preview.value = buildChildName(typeName, labelInput?.value || '', description.value);
+    };
+
+    document.querySelectorAll('[data-guided-root-form]').forEach((form) => {
+        const codeType = form.querySelector('[data-code-type]');
+        const zoneNumber = form.querySelector('[data-zone-number]');
+        const zoneDescription = form.querySelector('[data-zone-description]');
+
+        codeType?.addEventListener('change', () => updateCodePreview(form));
+        zoneNumber?.addEventListener('input', () => updateZoneName(form));
+        zoneDescription?.addEventListener('input', () => updateZoneName(form));
+
+        updateCodePreview(form);
+        updateZoneName(form);
+    });
+
+    document.querySelectorAll('[data-guided-child-form]').forEach((form) => {
+        const typeSelect = form.querySelector('[data-guided-type]');
+        const labelInput = form.querySelector('[data-unit-label]');
+        const description = form.querySelector('[data-unit-description]');
+
+        typeSelect?.addEventListener('change', () => {
+            updateCodePreview(form);
+            updateChildName(form);
+        });
+        labelInput?.addEventListener('input', () => updateChildName(form));
+        description?.addEventListener('input', () => updateChildName(form));
+
+        updateCodePreview(form);
+        updateChildName(form);
     });
 })();
