@@ -106,6 +106,70 @@
         preview.value = buildChildName(typeName, labelInput?.value || '', description.value);
     };
 
+    const escapeHtml = (value) => String(value || '')
+        .replaceAll('&', '&amp;')
+        .replaceAll('<', '&lt;')
+        .replaceAll('>', '&gt;')
+        .replaceAll('"', '&quot;')
+        .replaceAll("'", '&#039;');
+
+    const showUnitIdentifiers = async () => {
+        const unitId = Number(new URLSearchParams(window.location.search).get('id') || 0);
+        if (!Number.isInteger(unitId) || unitId <= 0) {
+            return;
+        }
+
+        try {
+            const response = await fetch(`estructura_codigo.php?id=${encodeURIComponent(unitId)}`, {
+                headers: { Accept: 'application/json' },
+                credentials: 'same-origin',
+            });
+            if (!response.ok) {
+                return;
+            }
+
+            const payload = await response.json();
+            if (!payload?.ok || !payload.unit) {
+                return;
+            }
+
+            const systemCode = payload.unit.system_code || 'Pendiente';
+            const institutionalCode = payload.unit.institutional_code || 'Sin código anterior';
+            const selectedPanel = document.querySelector('.simple-selected-unit .page-intro > div:first-child');
+
+            if (selectedPanel && !selectedPanel.querySelector('[data-identifier-summary]')) {
+                const summary = document.createElement('div');
+                summary.className = 'identifier-summary';
+                summary.dataset.identifierSummary = 'true';
+                summary.innerHTML = `
+                    <span><strong>Código del sistema:</strong> ${escapeHtml(systemCode)}</span>
+                    <span><strong>Código institucional anterior:</strong> ${escapeHtml(institutionalCode)}</span>
+                `;
+                selectedPanel.appendChild(summary);
+            }
+
+            const updateForm = document.querySelector('form input[name="action"][value="update"]')?.closest('form');
+            if (updateForm && !updateForm.querySelector('[data-institutional-code-field]')) {
+                const systemCodeField = Array.from(updateForm.querySelectorAll('.field')).find((field) =>
+                    field.querySelector('label')?.textContent?.trim() === 'Código del sistema'
+                );
+
+                if (systemCodeField) {
+                    const historicalField = document.createElement('div');
+                    historicalField.className = 'field';
+                    historicalField.dataset.institutionalCodeField = 'true';
+                    historicalField.innerHTML = `
+                        <label>Código institucional anterior</label>
+                        <input class="system-readonly" value="${escapeHtml(institutionalCode)}" readonly>
+                    `;
+                    systemCodeField.insertAdjacentElement('afterend', historicalField);
+                }
+            }
+        } catch (error) {
+            // La pantalla sigue funcionando aunque el resumen adicional no pueda cargarse.
+        }
+    };
+
     document.querySelectorAll('[data-guided-root-form]').forEach((form) => {
         const codeType = form.querySelector('[data-code-type]');
         const zoneNumber = form.querySelector('[data-zone-number]');
@@ -134,4 +198,6 @@
         updateCodePreview(form);
         updateChildName(form);
     });
+
+    showUnitIdentifiers();
 })();
